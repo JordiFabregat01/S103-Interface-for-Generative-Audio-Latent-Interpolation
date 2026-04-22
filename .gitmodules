@@ -1,0 +1,3 @@
+[submodule "modules/scapes"]
+	path = modules/scapes
+	url = https://github.com/cordutie/SCAPES.git
