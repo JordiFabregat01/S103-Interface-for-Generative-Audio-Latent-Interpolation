@@ -1,0 +1,27 @@
+# Git
+.git/
+.gitmodules
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local envs
+**/.venv/
+**/venv/
+
+# Node
+node_modules/
+
+# Frontend build output (rebuilt in Docker)
+app/frontend/dist/
+app/frontend/build/
+
+# IDE
+.vscode/
+
+# OS junk
+.DS_Store
+
+# Local env files
+**/.env
