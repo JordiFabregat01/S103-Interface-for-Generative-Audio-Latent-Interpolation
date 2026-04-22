@@ -1,0 +1,10 @@
+torchdiffeq
+torch
+torchaudio
+librosa
+numpy
+matplotlib
+soundfile
+transformers
+tqdm
+msclap
