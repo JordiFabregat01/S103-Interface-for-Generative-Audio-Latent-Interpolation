@@ -1,10 +1,12 @@
-from pydantic import BaseModel
 from enum import Enum
 
+from pydantic import BaseModel
 
-class AudioElement(Enum, str):
+
+class AudioElement(str, Enum):
     CAMPFIRE = "campfire"
     KEYBOARD = "keyboard"
+
 
 class InterpolationElement(BaseModel):
     audio1: AudioElement
