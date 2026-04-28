@@ -25,3 +25,7 @@ app/frontend/build/
 
 # Local env files
 **/.env
+
+# Project specific
+app/backend/inference/weights/
+modules/
