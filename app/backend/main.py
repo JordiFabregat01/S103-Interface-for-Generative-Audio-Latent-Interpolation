@@ -6,7 +6,6 @@ from inference.models import InterpolationElement
 
 app = FastAPI()
 
-
 @app.on_event("startup")
 def warm_inference_engine() -> None:
     try:
