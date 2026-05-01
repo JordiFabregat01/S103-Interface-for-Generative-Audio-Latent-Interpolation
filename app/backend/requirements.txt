@@ -1,0 +1,16 @@
+# Dependencies from SCAPES
+torchdiffeq
+torch
+torchaudio
+librosa
+numpy
+matplotlib
+soundfile
+transformers
+tqdm
+msclap
+
+# Backend dependencies
+fastapi
+uvicorn
+pydantic
