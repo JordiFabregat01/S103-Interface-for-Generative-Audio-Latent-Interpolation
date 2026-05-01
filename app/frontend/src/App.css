@@ -17,28 +17,71 @@ body {
 .main-layout {
   display: flex;
   gap: 20px;
+  justify-content: center;
 }
 
 .plot-area {
   position: relative;
-  width: 800px;
-  height: 500px;
   background: #1e1e1e;
   border-radius: 12px;
   border: 1px solid #444;
+  overflow: hidden;
+}
+
+.plot-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 16px;
+}
+
+.plot-message.error {
+  color: #ff7b7b;
 }
 
 .dot {
   position: absolute;
   cursor: pointer;
-  font-size: 24px;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.15s;
+  user-select: none;
+}
+
+.dot-marker {
+  font-size: 20px;
   color: #00d8ff;
-  transition: 0.2s;
+  line-height: 1;
+}
+
+.dot-label {
+  font-size: 11px;
+  color: #cfd8dc;
+  margin-top: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.75;
 }
 
 .dot:hover {
-  transform: scale(1.4);
-  color: yellow;
+  transform: translate(-50%, -50%) scale(1.25);
+  z-index: 2;
+}
+
+.dot:hover .dot-marker,
+.dot.selected .dot-marker {
+  color: #ffd34d;
+}
+
+.dot.selected .dot-label {
+  opacity: 1;
+  color: white;
+  font-weight: 600;
 }
 
 .side-panel {
@@ -46,6 +89,7 @@ body {
   background: #1e1e1e;
   padding: 20px;
   border-radius: 12px;
+  height: fit-content;
 }
 
 button {
@@ -56,4 +100,10 @@ button {
   border: none;
   border-radius: 8px;
   cursor: pointer;
+  color: #111;
+  font-weight: 600;
+}
+
+button:hover {
+  background: #4ee3ff;
 }
