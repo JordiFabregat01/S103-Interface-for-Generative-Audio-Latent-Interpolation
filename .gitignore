@@ -1,4 +1,68 @@
-.venv
-.ipynb_checkpoints
-/dataset
-/model
+# =========================
+# Python basics
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+
+# =========================
+# Virtual environments
+# =========================
+venv/
+env/
+.venv/
+conda-env/
+node_modules/
+.env*
+
+# =========================
+# ML model files (VERY IMPORTANT FOR YOU)
+# =========================
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pkl
+
+# HuggingFace / checkpoints
+checkpoints/
+models/
+model_weights/
+app/backend/inference/weights/
+modules/
+
+# =========================
+# Data / audio (your project specific)
+# =========================
+*.wav
+*.mp3
+*.flac
+datasets/
+data/
+results/
+app/frontend/dist/
+app/frontend/build/
+
+# =========================
+# Jupyter Notebook noise
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDEs
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Logs
+# =========================
+*.log
