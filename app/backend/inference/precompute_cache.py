@@ -1,34 +1,67 @@
 import torch
-from inference.methods import get_inference_engine
 from inference.constants import AUDIO_ASSET_MAP, AUDIO_CACHE_MAP, CACHE_DIR
+from inference.scapes_runtime import EncodecProcessor
+from inference.methods import CLAPWrapper  # ONLY if you need context embeddings
+
+import os
 
 
 def precompute():
-    engine = get_inference_engine()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    for audio_enum, audio_path in AUDIO_ASSET_MAP.items():
+    print(f"Using device: {device}")
 
-        print(f"\nProcessing: {audio_enum}")
+    # ONLY lightweight components (NO FlowInference)
+    processor = EncodecProcessor(sr=48000, streamable=True, device=device)
 
-        # 1. Load audio
-        audio_tensor = engine.load_audio_to_tensor(str(audio_path))
+    # optional: only needed for contexts
+    context_model = CLAPWrapper(version="2023", use_cuda=(device == "cuda"))
 
-        # 2. Encode into atoms
-        atoms = engine.encode_audio_to_atoms(audio_tensor)
+    for audio_enum, path in AUDIO_ASSET_MAP.items():
 
-        # 3. Compute contexts
-        contexts = engine.compute_context_track(atoms)
+        print(f"\nProcessing {audio_enum}...")
 
-        # 4. Create folder
+        # 1. load audio
+        audio, _ = processor.load_audio_to_tensor(str(path))
+
+        # 2. encode → atoms (THIS is your real goal)
+        latent_list, metadata = processor.audio_to_latents(audio, sr=48000)
+
+        latent = torch.cat(latent_list, dim=-1)
+
+        scale = metadata["audio_scales"][0]
+        scale = scale.unsqueeze(-1).expand(-1, -1, latent.shape[-1])
+
+        atoms = torch.cat([latent, scale], dim=1)
+
+        # 3. compute contexts (optional but consistent with your system)
+        contexts = []
+
+        hop = atoms.shape[-1] // 10  # simple sliding approximation
+
+        for i in range(10):
+            start = i * hop
+            end = start + hop
+
+            segment = audio[:, :, start * 320:(end + 1) * 320]
+
+            emb = context_model.compute_embedding(
+                segment,
+                og_sr=48000,
+                random_extension=False
+            ).squeeze(0)
+
+            contexts.append(emb)
+
+        # 4. save
         name = AUDIO_CACHE_MAP[audio_enum]
         save_dir = CACHE_DIR / name
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # 5. Save files
         torch.save(atoms, save_dir / "atoms.pt")
         torch.save(contexts, save_dir / "contexts.pt")
 
-        print(f"Saved cache for {audio_enum} → {save_dir}")
+        print(f"Saved: {name}")
 
 
 if __name__ == "__main__":
