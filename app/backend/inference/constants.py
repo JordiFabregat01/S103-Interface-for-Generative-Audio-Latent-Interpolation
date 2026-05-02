@@ -4,7 +4,7 @@ from pathlib import Path
 from inference.models import AudioElement
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-MODEL_DIR = Path(__file__).resolve().parent / "weights" / "Full_150e"
+MODEL_DIR = Path(__file__).resolve().parent / "models" / "Full_150e"
 
 CACHE_DIR = ASSETS_DIR / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
