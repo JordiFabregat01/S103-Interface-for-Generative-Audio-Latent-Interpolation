@@ -7,6 +7,7 @@ from inference.constants import AUDIO_ASSET_MAP
 
 def precompute():
     engine = get_inference_engine()
+    cwd = Path.cwd().resolve()
 
     for audio_enum, audio_path in AUDIO_ASSET_MAP.items():
         audio_path = Path(audio_path).resolve()
@@ -24,8 +25,12 @@ def precompute():
         contexts = engine.compute_context_track(atoms)
 
         # 4. Set output cache paths
+        # Keep canonical cache in assets, and mirror in cwd because FlowInference
+        # currently resolves cache files with relative paths.
         atoms_path = audio_path.parent / f"{stem}_atoms.pt"
         contexts_path = audio_path.parent / f"{stem}_contexts.pt"
+        atoms_cwd_path = cwd / f"{stem}_atoms.pt"
+        contexts_cwd_path = cwd / f"{stem}_contexts.pt"
 
         # 5. Move atoms and contexts to CPU for saving
         atoms_cpu = [atom.detach().cpu() for atom in atoms]
@@ -34,10 +39,15 @@ def precompute():
         # 6. Save atom and context tensors
         torch.save(atoms_cpu, atoms_path)
         torch.save(contexts_cpu, contexts_path)
+        if atoms_cwd_path != atoms_path:
+            torch.save(atoms_cpu, atoms_cwd_path)
+            torch.save(contexts_cpu, contexts_cwd_path)
 
         # 7. Log cache location
         print(f"Saved cache for {audio_enum} -> {atoms_path.name}, {contexts_path.name}")
-        print(f"  directory: {audio_path.parent}")
+        print(f"  assets directory: {audio_path.parent}")
+        if atoms_cwd_path != atoms_path:
+            print(f"  cwd mirror directory: {cwd}")
 
 
 if __name__ == "__main__":
