@@ -14,6 +14,8 @@ venv/
 env/
 .venv/
 conda-env/
+node_modules/
+.env*
 
 # =========================
 # ML model files (VERY IMPORTANT FOR YOU)
@@ -28,6 +30,8 @@ conda-env/
 checkpoints/
 models/
 model_weights/
+app/backend/inference/weights/
+modules/
 
 # =========================
 # Data / audio (your project specific)
@@ -38,6 +42,8 @@ model_weights/
 datasets/
 data/
 results/
+app/frontend/dist/
+app/frontend/build/
 
 # =========================
 # Jupyter Notebook noise

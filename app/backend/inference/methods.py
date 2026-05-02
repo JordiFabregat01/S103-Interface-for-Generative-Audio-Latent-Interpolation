@@ -1,4 +1,6 @@
 import os
+import logging
+import time
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -15,23 +17,20 @@ from inference.scapes_runtime import (
     run_interpolation_pipeline,
 )
 
+from inference.constants import (
+    ASSETS_DIR,
+    AUDIO_ASSET_MAP,
+    ATOMS_FRAMES,
+    ATOMS_HOP_FRAMES,
+    CROSSFADE_FRAMES,
+    FLOW_MODEL_CKPT,
+    FLOW_MODEL_CONFIG,
+    LOCAL_ENCODER_CKPT,
+    LOCAL_ENCODER_CONFIG,
+    MODEL_DIR,
+)
 
-ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-MODEL_DIR = Path(__file__).resolve().parent / "models" / "Full_150e"
-
-AUDIO_ASSET_MAP = {
-    AudioElement.CAMPFIRE: ASSETS_DIR / "camp_fire.wav",
-    AudioElement.KEYBOARD: ASSETS_DIR / "keyboard.wav",
-}
-
-FLOW_MODEL_CKPT = Path(os.getenv("SCAPES_FLOW_MODEL_CKPT", MODEL_DIR / "checkpoints" / "best_flow_model.pt"))
-FLOW_MODEL_CONFIG = Path(os.getenv("SCAPES_FLOW_MODEL_CONFIG", MODEL_DIR / "checkpoints" / "flow_model_config.json"))
-LOCAL_ENCODER_CKPT = Path(os.getenv("SCAPES_LOCAL_ENCODER_CKPT", MODEL_DIR / "checkpoints" / "best_local_encoder.pt"))
-LOCAL_ENCODER_CONFIG = Path(os.getenv("SCAPES_LOCAL_ENCODER_CONFIG", MODEL_DIR / "checkpoints" / "local_encoder_config.json"))
-
-ATOMS_FRAMES = int(os.getenv("SCAPES_ATOMS_FRAMES", "48"))
-ATOMS_HOP_FRAMES = int(os.getenv("SCAPES_ATOMS_HOP_FRAMES", "15"))
-CROSSFADE_FRAMES = int(os.getenv("SCAPES_CROSSFADE_FRAMES", "3"))
+logger = logging.getLogger(__name__)
 
 
 def greet() -> str:
@@ -41,6 +40,7 @@ def greet() -> str:
 def _resolve_audio_path(audio: AudioElement) -> Path:
     audio_path = AUDIO_ASSET_MAP[audio]
     if not audio_path.exists():
+        logger.warning(f"Audio asset not found: {audio_path}")
         raise FileNotFoundError(
             f"Missing audio asset for '{audio.value}'. Expected file at: {audio_path}"
         )
@@ -55,6 +55,7 @@ def _validate_model_artifacts() -> None:
     ]
     if missing_paths:
         formatted = "\n".join(f"- {path}" for path in missing_paths)
+        logger.error(f"Missing model artifacts:\n{formatted}")
         raise FileNotFoundError(
             "Missing SCAPES model artifacts required for interpolation:\n" + formatted
         )
@@ -65,6 +66,7 @@ def get_inference_engine() -> FlowInference:
     _validate_model_artifacts()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Initializing inference engine on device: {device}")
     processor = EncodecProcessor(sr=48000, streamable=True, device=device)
     local_encoder = load_local_encoder(
         checkpoint_path=LOCAL_ENCODER_CKPT,
@@ -110,6 +112,8 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
     audio_path_1 = _resolve_audio_path(request.audio1)
     audio_path_2 = _resolve_audio_path(request.audio2)
 
+    logger.info("Running interpolation pipeline...")
+    start_time = time.time()
     final_audio = run_interpolation_pipeline(
         engine=engine,
         audio_path_1=str(audio_path_1),
@@ -125,5 +129,7 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         decode_method="ola_smooth",
         cache=True,
     )
+    duration = time.time() - start_time
+    logger.info(f"Interpolation pipeline finished in {duration:.2f} seconds.")
     return _waveform_to_wav_bytes(final_audio, engine.sr)
 
