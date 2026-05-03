@@ -1,3 +1,4 @@
+import math
 import os
 import logging
 import time
@@ -93,6 +94,151 @@ def get_inference_engine() -> FlowInference:
         device=device,
         verbose=False,
     )
+
+def time_to_sample_indices(
+    start_sec: float | None,
+    end_sec: float | None,
+    *,
+    sample_rate: int,
+    num_samples: int,
+) -> tuple[int, int]:
+    
+    if sample_rate <= 0:
+        raise ValueError("sample_rate must be positive")
+    if num_samples < 0:
+        raise ValueError("num_samples must be non-negative")
+    if start_sec is not None and start_sec < 0:
+        raise ValueError("start_sec must be non-negative")
+    if end_sec is not None and end_sec < 0:
+        raise ValueError("end_sec must be non-negative")
+
+    start_sample = (
+        0 if start_sec is None else max(0, min(num_samples, int(round(float(start_sec) * sample_rate))))
+    )
+    end_sample = (
+        num_samples
+        if end_sec is None
+        else max(0, min(num_samples, int(round(float(end_sec) * sample_rate))))
+    )
+
+    if start_sample >= end_sample:
+        raise ValueError(
+            f"empty or inverted sample range: start_sample={start_sample}, end_sample={end_sample}"
+        )
+    return start_sample, end_sample
+
+
+def time_to_atom_indices(
+    start_sec: float | None,
+    end_sec: float | None,
+    *,
+    engine: FlowInference,
+    num_atoms: int,
+) -> tuple[int, int]:
+    
+    if num_atoms <= 0:
+        raise ValueError("num_atoms must be positive")
+    if start_sec is not None and start_sec < 0:
+        raise ValueError("start_sec must be non-negative")
+    if end_sec is not None and end_sec < 0:
+        raise ValueError("end_sec must be non-negative")
+
+    sr = engine.sr
+    hop = engine.hop_samples
+    seg = engine.segment_samples
+    max_end_sample = (num_atoms - 1) * hop + seg
+
+    start_sample = 0 if start_sec is None else max(0, int(round(float(start_sec) * sr)))
+    if end_sec is None:
+        end_sample = max_end_sample
+    else:
+        end_sample = min(max_end_sample, int(round(float(end_sec) * sr)))
+
+    if start_sample >= end_sample:
+        raise ValueError(
+            f"empty or inverted range after mapping to samples: "
+            f"start_sample={start_sample}, end_sample={end_sample}"
+        )
+
+    lo = max(0, (start_sample - seg + hop) // hop)
+    hi = min(num_atoms, math.ceil(end_sample / hop))
+    if hi <= lo:
+        raise ValueError(
+            "time window maps to fewer than one atom hop; widen the selection."
+        )
+    return lo, hi
+
+    
+def trim_atoms_contexts(
+    atoms: list,
+    contexts: list,
+    start_sec: float | None,
+    end_sec: float | None,
+    *,
+    engine: FlowInference,
+) -> tuple[list, list]:
+    """
+    Trim atoms and contexts based on start and end times (in seconds).
+
+    Returns:
+        tuple[list, list]: Sliced atoms and contexts between the corresponding atom indices.
+    """
+    if len(atoms) != len(contexts):
+        raise ValueError(
+            f"atoms length ({len(atoms)}) must match contexts length ({len(contexts)})"
+        )
+
+    # Use time_to_atom_indices to determine the atom index range
+    lo, hi = time_to_atom_indices(
+        start_sec, end_sec,
+        engine=engine,
+        num_atoms=len(atoms),
+    )
+    if lo < 0 or hi < 0:
+        raise ValueError("Computed atom indices must be non-negative")
+    if lo > len(atoms) or hi > len(atoms):
+        raise ValueError(
+            f"indices out of range for length {len(atoms)}: start_index={lo}, end_index={hi}"
+        )
+    if lo >= hi:
+        raise ValueError(
+            f"empty slice: start_index ({lo}) must be < end_index ({hi})"
+        )
+    return atoms[lo:hi], contexts[lo:hi]
+
+
+def trim_waveform(
+    audio_tensor: torch.Tensor,
+    start_sample: int,
+    end_sample: int | None = None,
+) -> torch.Tensor:
+    """
+    Slice the time dimension like ``audio_tensor[..., start_sample:end_sample]``.
+
+    Accepts shapes ending with time ``T``: ``[1, C, T]`` (SCAPES) or ``[C, T]``.
+    ``end_sample`` defaults to ``T`` (through last sample).
+    """
+    if audio_tensor.dim() not in (2, 3):
+        raise ValueError(
+            f"expected waveform [1, C, T] or [C, T], got shape {tuple(audio_tensor.shape)}"
+        )
+    n = audio_tensor.shape[-1]
+    if end_sample is None:
+        end_sample = n
+    if start_sample < 0 or end_sample < 0:
+        raise ValueError("start_sample and end_sample must be non-negative")
+    if start_sample > n or end_sample > n:
+        raise ValueError(
+            f"sample indices out of range for length {n}: "
+            f"start_sample={start_sample}, end_sample={end_sample}"
+        )
+    if start_sample >= end_sample:
+        raise ValueError(
+            f"empty slice: start_sample ({start_sample}) must be < end_sample ({end_sample})"
+        )
+    return audio_tensor[..., start_sample:end_sample]
+
+
 
 
 def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> bytes:
