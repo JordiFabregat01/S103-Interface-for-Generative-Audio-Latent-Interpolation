@@ -5,6 +5,7 @@ import time
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, Tuple
 
 import soundfile as sf
 import torch
@@ -96,12 +97,12 @@ def get_inference_engine() -> FlowInference:
     )
 
 def time_to_sample_indices(
-    start_sec: float | None,
-    end_sec: float | None,
+    start_sec: Optional[float],
+    end_sec: Optional[float],
     *,
     sample_rate: int,
     num_samples: int,
-) -> tuple[int, int]:
+) -> Tuple[int, int]:
     
     if sample_rate <= 0:
         raise ValueError("sample_rate must be positive")
@@ -129,12 +130,12 @@ def time_to_sample_indices(
 
 
 def time_to_atom_indices(
-    start_sec: float | None,
-    end_sec: float | None,
+    start_sec: Optional[float],
+    end_sec: Optional[float],
     *,
     engine: FlowInference,
     num_atoms: int,
-) -> tuple[int, int]:
+) -> Tuple[int, int]:
     
     if num_atoms <= 0:
         raise ValueError("num_atoms must be positive")
@@ -172,11 +173,11 @@ def time_to_atom_indices(
 def trim_atoms_contexts(
     atoms: list,
     contexts: list,
-    start_sec: float | None,
-    end_sec: float | None,
+    start_sec: Optional[float],
+    end_sec: Optional[float],
     *,
     engine: FlowInference,
-) -> tuple[list, list]:
+) -> Tuple[list, list]:
     """
     Trim atoms and contexts based on start and end times (in seconds).
 
@@ -210,7 +211,7 @@ def trim_atoms_contexts(
 def trim_waveform(
     audio_tensor: torch.Tensor,
     start_sample: int,
-    end_sample: int | None = None,
+    end_sample: Optional[int] = None,
 ) -> torch.Tensor:
     """
     Slice the time dimension like ``audio_tensor[..., start_sample:end_sample]``.
