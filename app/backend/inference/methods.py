@@ -20,7 +20,6 @@ from inference.scapes_runtime import (
 )
 
 from inference.constants import (
-    ASSETS_DIR,
     _get_audio_asset_path,
     ATOMS_FRAMES,
     ATOMS_HOP_FRAMES,
@@ -29,7 +28,6 @@ from inference.constants import (
     FLOW_MODEL_CONFIG,
     LOCAL_ENCODER_CKPT,
     LOCAL_ENCODER_CONFIG,
-    MODEL_DIR,
 )
 
 logger = logging.getLogger(__name__)
