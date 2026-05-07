@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class AudioElement(str, Enum):
-    CAMPFIRE = "campfire"
+    CAMPFIRE = "camp_fire"
     KEYBOARD = "keyboard"
 
 
