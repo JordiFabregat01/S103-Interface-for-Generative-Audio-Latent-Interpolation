@@ -17,7 +17,6 @@ function App() {
         >
           Explorer
         </button>
-
         <button
           className={activeTab === "workspace" ? "tab active" : "tab"}
           onClick={() => setActiveTab("workspace")}
