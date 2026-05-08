@@ -32,7 +32,16 @@ def root():
 
 @app.post("/interpolate")
 def interpolate(payload: InterpolationElement):
-    logger.info(f"Received interpolation request: {payload.audio1.value} <-> {payload.audio2.value} (Timeline: {payload.timeline_size}, NFE: {payload.NFE})")
+    logger.info(
+        "Received interpolation request: %s <-> %s "
+        "(distance_sec=%.3f, duration_sec=%s, context_mode=%s, nfe=%d)",
+        payload.audio1.value,
+        payload.audio2.value,
+        payload.distance_sec,
+        f"{payload.duration_sec:.3f}" if payload.duration_sec is not None else "auto",
+        payload.context_mode,
+        payload.nfe,
+    )
     try:
         audio_bytes = render_interpolation_audio(payload)
         logger.info(f"Successfully generated {len(audio_bytes)} bytes of audio.")
