@@ -40,3 +40,7 @@ FlowInference = _flow_inference_module.FlowInference
 run_interpolation_pipeline = _flow_inference_module.run_interpolation_pipeline
 load_local_encoder = _local_encoder_module.load_local_encoder
 load_flow_model = _flow_module.load_flow_model
+
+slerp = _flow_inference_module.slerp
+sticky_curve_torch = _flow_inference_module.sticky_curve_torch
+low_pass_filter = _flow_inference_module.low_pass_filter
