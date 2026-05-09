@@ -11,13 +11,12 @@ import librosa
 import numpy as np
 import torch
 
+from inference.constants import ASSETS_DIR, CACHE_DIR
 from inference.scapes_runtime import CLAPWrapper
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = REPO_ROOT / "data"
-CACHE_DIR = Path(__file__).resolve().parent / "cache"
+DATA_DIR = ASSETS_DIR
 EMBEDDINGS_CACHE = CACHE_DIR / "clap_embeddings.npz"
 LAYOUT_CACHE = CACHE_DIR / "tsne_layout.json"
 

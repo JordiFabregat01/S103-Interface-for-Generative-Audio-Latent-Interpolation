@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, type SoundPoint } from "../api";
+import { getSounds, getSoundUrl, interpolate, type SoundPoint } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 type TimelineClip = {
@@ -14,6 +14,8 @@ type TimelineClip = {
 
 const COLORS = ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444"];
 
+const VALID_AUDIO_ELEMENTS = new Set(["camp_fire", "keyboard"]);
+
 function fmt(sec: number) {
   if (!isFinite(sec)) return "0:00";
   const m = Math.floor(sec / 60);
@@ -21,13 +23,24 @@ function fmt(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function filenameToAudioElement(filename: string) {
+  return filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/\s+/g, "_");
+}
+
 export default function WorkspaceView() {
   const [sounds, setSounds] = useState<SoundPoint[]>([]);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [selectedSound, setSelectedSound] = useState<SoundPoint | null>(null);
-  const player = useAudioPlayer();
+  const previewPlayer = useAudioPlayer();
+  const interpPlayer = useAudioPlayer();
   const dragSoundRef = useRef<SoundPoint | null>(null);
+
+  const [interpLoading, setInterpLoading] = useState(false);
+  const [interpError, setInterpError] = useState<string | null>(null);
+  const [interpUrl, setInterpUrl] = useState<string | null>(null);
+  const [interpDuration, setInterpDuration] = useState(3.0);
+  const interpUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     getSounds()
@@ -48,19 +61,6 @@ export default function WorkspaceView() {
     return "🎵";
   };
 
-  const addToTimeline = (sound: SoundPoint) => {
-    const lastClip = timelineClips[timelineClips.length - 1];
-    const newClip: TimelineClip = {
-      id: Date.now(),
-      name: sound.name,
-      filename: sound.filename,
-      start: lastClip ? lastClip.start + lastClip.duration - 40 : 0,
-      duration: 220,
-      color: COLORS[timelineClips.length % COLORS.length],
-    };
-    setTimelineClips((prev) => [...prev, newClip]);
-  };
-
   const moveClip = (id: number, newStart: number) => {
     setTimelineClips((prev) =>
       prev.map((clip) =>
@@ -69,13 +69,44 @@ export default function WorkspaceView() {
     );
   };
 
-  const playTimeline = async () => {
-    for (const clip of timelineClips) {
-      await new Promise<void>((resolve) => {
-        const audio = new Audio(getSoundUrl(clip.filename));
-        audio.onended = () => resolve();
-        audio.play();
+  const runInterpolation = async () => {
+    const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
+    const [clipA, clipB] = sorted;
+    if (!clipA || !clipB) return;
+
+    const a1 = filenameToAudioElement(clipA.filename);
+    const a2 = filenameToAudioElement(clipB.filename);
+    const unsupported = [
+      !VALID_AUDIO_ELEMENTS.has(a1) && clipA.name,
+      !VALID_AUDIO_ELEMENTS.has(a2) && clipB.name,
+    ].filter(Boolean);
+    if (unsupported.length > 0) {
+      setInterpError(
+        `Not supported yet: ${unsupported.join(", ")}. Currently only "Camp Fire" and "Keyboard" can be interpolated.`
+      );
+      return;
+    }
+
+    setInterpLoading(true);
+    setInterpError(null);
+    if (interpUrlRef.current) {
+      URL.revokeObjectURL(interpUrlRef.current);
+      interpUrlRef.current = null;
+    }
+    setInterpUrl(null);
+    try {
+      const url = await interpolate({
+        audio1: a1,
+        audio2: a2,
+        distance_sec: 0.0,
+        duration_sec: interpDuration,
       });
+      interpUrlRef.current = url;
+      setInterpUrl(url);
+    } catch (err) {
+      setInterpError(err instanceof Error ? err.message : "Interpolation failed");
+    } finally {
+      setInterpLoading(false);
     }
   };
 
@@ -86,6 +117,8 @@ export default function WorkspaceView() {
       overlaps.push(clip.id, next.id);
     }
   });
+
+  const canInterpolate = timelineClips.length >= 2;
 
   return (
     <div className="workspace-page">
@@ -105,11 +138,12 @@ export default function WorkspaceView() {
                   draggable
                   onClick={() => {
                     if (selectedSound?.id === sound.id) {
-                      player.pause();
+                      previewPlayer.pause();
                       setSelectedSound(null);
                     } else {
+                      interpPlayer.pause();
                       setSelectedSound(sound);
-                      player.play(getSoundUrl(sound.filename));
+                      previewPlayer.play(getSoundUrl(sound.filename));
                     }
                   }}
                   onDragStart={() => { dragSoundRef.current = sound; }}
@@ -126,30 +160,30 @@ export default function WorkspaceView() {
             <div className="sound-preview-panel">
               <div className="sound-preview-header">
                 <span className="preview-name">{getEmoji(selectedSound.name)} {selectedSound.name}</span>
-                <button className="close-preview-btn" onClick={() => { player.pause(); setSelectedSound(null); }}>✕</button>
+                <button className="close-preview-btn" onClick={() => { previewPlayer.pause(); setSelectedSound(null); }}>✕</button>
               </div>
               <div className="preview-controls">
                 <button
                   className="preview-play-btn"
-                  onClick={() => { player.seek(0); player.play(getSoundUrl(selectedSound.filename)); }}
+                  onClick={() => { interpPlayer.pause(); previewPlayer.seek(0); previewPlayer.play(getSoundUrl(selectedSound.filename)); }}
                   title="Restart"
                 >↺</button>
                 <button
                   className="preview-play-btn"
-                  onClick={() => player.isPlaying ? player.pause() : player.play(getSoundUrl(selectedSound.filename))}
+                  onClick={() => previewPlayer.isPlaying ? previewPlayer.pause() : (interpPlayer.pause(), previewPlayer.play(getSoundUrl(selectedSound.filename)))}
                 >
-                  {player.isPlaying ? "⏸" : "▶"}
+                  {previewPlayer.isPlaying ? "⏸" : "▶"}
                 </button>
                 <input
                   className="audio-scrubber"
                   type="range"
                   min={0}
-                  max={player.duration || 1}
+                  max={previewPlayer.duration || 1}
                   step={0.01}
-                  value={player.currentTime}
-                  onChange={(e) => player.seek(Number(e.target.value))}
+                  value={previewPlayer.currentTime}
+                  onChange={(e) => previewPlayer.seek(Number(e.target.value))}
                 />
-                <span className="audio-time">{fmt(player.currentTime)} / {fmt(player.duration)}</span>
+                <span className="audio-time">{fmt(previewPlayer.currentTime)} / {fmt(previewPlayer.duration)}</span>
               </div>
             </div>
           )}
@@ -164,9 +198,53 @@ export default function WorkspaceView() {
       <div className="timeline-panel">
         <h2>Timeline</h2>
 
-        <button className="play-timeline-btn" onClick={playTimeline}>
-          ▶ Play Timeline
-        </button>
+        <div className="timeline-controls">
+          <label className="duration-label">
+            Interpolation duration: <strong>{interpDuration.toFixed(1)}s</strong>
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={0.5}
+              value={interpDuration}
+              onChange={(e) => setInterpDuration(Number(e.target.value))}
+              className="interp-slider"
+            />
+          </label>
+          <button
+            className="interpolate-btn"
+            onClick={runInterpolation}
+            disabled={!canInterpolate || interpLoading}
+          >
+            {interpLoading ? "Generating…" : "Interpolate"}
+          </button>
+        </div>
+
+        {interpError && <p className="interp-error">{interpError}</p>}
+
+        {interpUrl && !interpLoading && (
+          <div className="interp-result">
+            <span>Result ready</span>
+            <div className="preview-controls">
+              <button
+                className="preview-play-btn"
+                onClick={() => interpPlayer.isPlaying ? interpPlayer.pause() : (previewPlayer.pause(), interpPlayer.play(interpUrl))}
+              >
+                {interpPlayer.isPlaying ? "⏸" : "▶"}
+              </button>
+              <input
+                className="audio-scrubber"
+                type="range"
+                min={0}
+                max={interpPlayer.duration || 1}
+                step={0.01}
+                value={interpPlayer.currentTime}
+                onChange={(e) => interpPlayer.seek(Number(e.target.value))}
+              />
+              <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+            </div>
+          </div>
+        )}
 
         <div
           className="timeline"
@@ -176,7 +254,6 @@ export default function WorkspaceView() {
             if (!sound) return;
             const timelineLeft = e.currentTarget.getBoundingClientRect().left;
             const dropX = e.clientX - timelineLeft;
-            const lastClip = timelineClips[timelineClips.length - 1];
             const newClip: TimelineClip = {
               id: Date.now(),
               name: sound.name,
@@ -202,20 +279,11 @@ export default function WorkspaceView() {
               }}
               onClick={() => {
                 setSelectedSound(sounds.find((s) => s.filename === clip.filename) ?? null);
-                player.play(getSoundUrl(clip.filename));
+                previewPlayer.play(getSoundUrl(clip.filename));
               }}
               style={{ left: `${clip.start}px`, width: `${clip.duration}px`, background: clip.color }}
             >
               <span>{clip.name}</span>
-              <button
-                className="delete-clip-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setTimelineClips((prev) => prev.filter((c) => c.id !== clip.id));
-                }}
-              >
-                ✕
-              </button>
             </div>
           ))}
         </div>
