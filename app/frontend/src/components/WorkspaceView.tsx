@@ -9,10 +9,22 @@ type SoundPoint = {
   y: number;
 };
 
+type TimelineClip = {
+  id: number;
+  name: string;
+  filename: string;
+  start: number;
+  duration: number;
+  color: string;
+};
+
 const API_BASE = "http://localhost:8000";
+
+const audioRef = new Audio();
 
 export default function WorkspaceView() {
   const [sounds, setSounds] = useState<SoundPoint[]>([]);
+  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
 
   useEffect(() => {
     fetch(`${API_BASE}/sounds`)
@@ -40,6 +52,55 @@ export default function WorkspaceView() {
     return "🎵";
   };
 
+  const playSound = (filename: string) => {
+    audioRef.src = `${API_BASE}/sounds/${encodeURIComponent(filename)}`;
+    audioRef.play();
+  };
+
+  const playClip = (filename: string) => {
+    return new Promise<void>((resolve) => {
+      audioRef.src = `${API_BASE}/sounds/${encodeURIComponent(filename)}`;
+
+      audioRef.onended = () => {
+        resolve();
+      };
+
+      audioRef.play();
+    });
+  };
+
+  const playTimeline = async () => {
+    for (const clip of timelineClips) {
+      await playClip(clip.filename);
+    }
+  };
+
+  const addToTimeline = (sound: SoundPoint) => {
+    const lastClip = timelineClips[timelineClips.length - 1];
+
+    const colors = [
+      "#3b82f6",
+      "#8b5cf6",
+      "#06b6d4",
+      "#10b981",
+      "#f59e0b",
+      "#ef4444",
+    ];
+
+    const newClip: TimelineClip = {
+      id: Date.now(),
+      name: sound.name,
+      filename: sound.filename,
+      start: lastClip
+        ? lastClip.start + lastClip.duration - 40
+        : 0,
+      duration: 220,
+      color: colors[timelineClips.length % colors.length],
+    };
+
+    setTimelineClips([...timelineClips, newClip]);
+  };
+
   return (
     <div className="workspace-page">
       <h1>Workspace</h1>
@@ -52,7 +113,11 @@ export default function WorkspaceView() {
 
           <div className="sound-grid">
             {sounds.map((sound) => (
-              <div key={sound.id} className="sound-card">
+              <div
+                key={sound.id}
+                className="sound-card"
+                onClick={() => addToTimeline(sound)}
+              >
                 <div className="sound-image">
                   {getEmoji(sound.name)}
                 </div>
@@ -63,7 +128,7 @@ export default function WorkspaceView() {
           </div>
         </div>
 
-        {/* DROP ZONE */}
+        {/* INTERPOLATION AREA */}
         <div className="drop-panel">
           <h2>Interpolation Area</h2>
 
@@ -77,8 +142,28 @@ export default function WorkspaceView() {
       <div className="timeline-panel">
         <h2>Timeline</h2>
 
+        <button
+          className="play-timeline-btn"
+          onClick={playTimeline}
+        >
+          ▶ Play Timeline
+        </button>
+
         <div className="timeline">
-          Timeline interpolation system coming soon...
+          {timelineClips.map((clip) => (
+            <div
+              key={clip.id}
+              className="timeline-clip"
+              onClick={() => playSound(clip.filename)}
+              style={{
+                left: `${clip.start}px`,
+                width: `${clip.duration}px`,
+                background: clip.color,
+              }}
+            >
+              {clip.name}
+            </div>
+          ))}
         </div>
       </div>
     </div>
