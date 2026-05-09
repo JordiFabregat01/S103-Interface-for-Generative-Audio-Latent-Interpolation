@@ -174,7 +174,6 @@ export default function WorkspaceView() {
       <h1>Workspace</h1>
 
       <div className="workspace-layout">
-        {/* LIBRARY */}
         <div className="library-panel">
           <h2>Sound Library</h2>
 
@@ -195,7 +194,6 @@ export default function WorkspaceView() {
           </div>
         </div>
 
-        {/* INTERPOLATION AREA */}
         <div className="drop-panel">
           <h2>Interpolation Area</h2>
 
@@ -205,7 +203,6 @@ export default function WorkspaceView() {
         </div>
       </div>
 
-      {/* TIMELINE */}
       <div className="timeline-panel">
         <h2>Timeline</h2>
 
