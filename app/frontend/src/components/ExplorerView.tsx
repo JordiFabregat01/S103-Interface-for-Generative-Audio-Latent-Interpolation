@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
+import { getSounds, getSoundUrl, type SoundPoint } from "../api";
 
-type SoundPoint = {
-  id: number;
-  name: string;
-  filename: string;
-  x: number;
-  y: number;
-};
-
-const API_BASE = "http://localhost:8000";
 const PLOT_WIDTH = 800;
 const PLOT_HEIGHT = 500;
 const PLOT_PADDING = 40;
@@ -24,12 +16,8 @@ export default function ExplorerView() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch(`${API_BASE}/sounds`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((data: SoundPoint[]) => {
+    getSounds()
+      .then((data) => {
         if (cancelled) return;
         setPoints(data);
         setLoading(false);
@@ -65,9 +53,7 @@ export default function ExplorerView() {
       audioRef.current = new Audio();
     }
 
-    audioRef.current.src = `${API_BASE}/sounds/${encodeURIComponent(
-      selected.filename
-    )}`;
+    audioRef.current.src = getSoundUrl(selected.filename);
 
     audioRef.current.play().catch((err) => {
       console.error("Audio play failed:", err);

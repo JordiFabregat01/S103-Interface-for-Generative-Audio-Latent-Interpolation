@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import "../App.css";
-
-type SoundPoint = {
-  id: number;
-  name: string;
-  filename: string;
-  x: number;
-  y: number;
-};
+import { getSounds, getSoundUrl, type SoundPoint } from "../api";
 
 type TimelineClip = {
   id: number;
@@ -18,8 +11,6 @@ type TimelineClip = {
   color: string;
 };
 
-const API_BASE = "http://localhost:8000";
-
 const audioRef = new Audio();
 
 export default function WorkspaceView() {
@@ -28,14 +19,9 @@ export default function WorkspaceView() {
   const [draggingId, setDraggingId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/sounds`)
-      .then((res) => res.json())
-      .then((data) => {
-        setSounds(data);
-      })
-      .catch((err) => {
-        console.error("Error loading sounds:", err);
-      });
+    getSounds()
+      .then(setSounds)
+      .catch((err) => console.error("Error loading sounds:", err));
   }, []);
 
   const getEmoji = (name: string) => {
@@ -54,13 +40,13 @@ export default function WorkspaceView() {
   };
 
   const playSound = (filename: string) => {
-    audioRef.src = `${API_BASE}/sounds/${encodeURIComponent(filename)}`;
+    audioRef.src = getSoundUrl(filename);
     audioRef.play();
   };
 
   const playClip = (filename: string) => {
     return new Promise<void>((resolve) => {
-      audioRef.src = `${API_BASE}/sounds/${encodeURIComponent(filename)}`;
+      audioRef.src = getSoundUrl(filename);
 
       audioRef.onended = () => {
         resolve();
