@@ -108,9 +108,19 @@ button:hover {
   background: #4ee3ff;
 }
 
+/* ---------- APP ROOT ---------- */
+
+.app-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ---------- TOPBAR ---------- */
 
 .topbar {
+  flex-shrink: 0;
   display: flex;
   gap: 10px;
   padding: 20px;
@@ -142,11 +152,18 @@ button:hover {
 /* ---------- WORKSPACE ---------- */
 
 .workspace-page {
-  padding: 30px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 20px 30px;
+  box-sizing: border-box;
   color: white;
 }
 
 .workspace-layout {
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 20px;
   margin-top: 20px;
@@ -155,6 +172,8 @@ button:hover {
 .library-panel,
 .drop-panel {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   background: #1e1e1e;
   border-radius: 14px;
   padding: 20px;
@@ -200,7 +219,8 @@ button:hover {
 }
 
 .timeline-panel {
-  margin-top: 30px;
+  flex-shrink: 0;
+  margin-top: 16px;
   background: #1e1e1e;
   border-radius: 14px;
   padding: 20px;
@@ -210,6 +230,12 @@ button:hover {
 .workspace-page h1,
 .workspace-page h2 {
   color: white;
+}
+
+.workspace-page h1 {
+  font-size: 28px;
+  margin: 0 0 4px;
+  letter-spacing: -0.5px;
 }
 
 .timeline {

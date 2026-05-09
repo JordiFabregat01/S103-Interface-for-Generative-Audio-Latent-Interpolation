@@ -9,7 +9,7 @@ function App() {
   );
 
   return (
-    <div>
+    <div className="app-root">
       <div className="topbar">
         <button
           className={activeTab === "explorer" ? "tab active" : "tab"}
