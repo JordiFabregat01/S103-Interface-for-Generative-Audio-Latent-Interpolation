@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "../App.css";
 import { getSounds, getSoundUrl, type SoundPoint } from "../api";
+import AudioPlayer from "./AudioPlayer";
+import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 const PLOT_WIDTH = 800;
 const PLOT_HEIGHT = 500;
@@ -11,7 +13,7 @@ export default function ExplorerView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<SoundPoint | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const player = useAudioPlayer();
 
   useEffect(() => {
     let cancelled = false;
@@ -46,20 +48,6 @@ export default function ExplorerView() {
     }));
   }, [points]);
 
-  const playSelected = () => {
-    if (!selected) return;
-
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-    }
-
-    audioRef.current.src = getSoundUrl(selected.filename);
-
-    audioRef.current.play().catch((err) => {
-      console.error("Audio play failed:", err);
-    });
-  };
-
   return (
     <div className="app">
       <header className="header">
@@ -90,7 +78,14 @@ export default function ExplorerView() {
                   key={point.id}
                   className={`dot${isSelected ? " selected" : ""}`}
                   style={{ left: point.px, top: point.py }}
-                  onClick={() => setSelected(point)}
+                  onClick={() => {
+                    if (selected?.id === point.id) {
+                      player.isPlaying ? player.pause() : player.play(getSoundUrl(point.filename));
+                    } else {
+                      setSelected(point);
+                      player.play(getSoundUrl(point.filename));
+                    }
+                  }}
                   title={point.name}
                 >
                   <span className="dot-marker">●</span>
@@ -118,7 +113,7 @@ export default function ExplorerView() {
                 {selected.y.toFixed(3)})
               </p>
 
-              <button onClick={playSelected}>Play Sound</button>
+              <AudioPlayer player={player} url={getSoundUrl(selected.filename)} />
               <button>Use for Interpolation</button>
             </>
           ) : (
