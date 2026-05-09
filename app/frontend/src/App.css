@@ -220,3 +220,51 @@ button:hover {
 .workspace-page h2 {
   color: white;
 }
+
+.timeline {
+  position: relative;
+  margin-top: 20px;
+  height: 140px;
+  border-radius: 12px;
+  border: 2px dashed #555;
+  background: #181818;
+  overflow: hidden;
+}
+
+.timeline-clip {
+  position: absolute;
+  top: 40px;
+  height: 50px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.timeline-clip:hover {
+  transform: scale(1.03);
+}
+
+.play-timeline-btn {
+  width: auto;
+  padding: 10px 18px;
+  margin-top: 10px;
+  margin-bottom: 20px;
+  background: #00d8ff;
+  color: #111;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.play-timeline-btn:hover {
+  transform: scale(1.03);
+  background: #38e8ff;
+}
