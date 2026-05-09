@@ -25,6 +25,7 @@ const audioRef = new Audio();
 export default function WorkspaceView() {
   const [sounds, setSounds] = useState<SoundPoint[]>([]);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/sounds`)
@@ -101,12 +102,78 @@ export default function WorkspaceView() {
     setTimelineClips([...timelineClips, newClip]);
   };
 
+  const moveClip = (id: number, newStart: number) => {
+    setTimelineClips((prev) =>
+      prev.map((clip) =>
+        clip.id === id
+          ? {
+              ...clip,
+              start: Math.max(0, newStart),
+            }
+          : clip
+      )
+    );
+  };
+
+  const hasOverlap = (
+    clipA: TimelineClip,
+    clipB: TimelineClip
+  ) => {
+    return (
+      clipA.start < clipB.start + clipB.duration &&
+      clipA.start + clipA.duration > clipB.start
+    );
+  };
+
+  const getOverlapAmount = (
+    clipA: TimelineClip,
+    clipB: TimelineClip
+  ) => {
+    const overlapStart = Math.max(
+      clipA.start,
+      clipB.start
+    );
+
+    const overlapEnd = Math.min(
+      clipA.start + clipA.duration,
+      clipB.start + clipB.duration
+    );
+
+    const overlap = overlapEnd - overlapStart;
+
+    if (overlap <= 0) return 0;
+
+    return overlap / Math.min(
+      clipA.duration,
+      clipB.duration
+    );
+  };
+
+  const overlaps: number[] = [];
+
+  timelineClips.forEach((clip, index) => {
+    const nextClip = timelineClips[index + 1];
+
+    if (nextClip && hasOverlap(clip, nextClip)) {
+      overlaps.push(clip.id);
+      overlaps.push(nextClip.id);
+
+      const amount = getOverlapAmount(
+        clip,
+        nextClip
+      );
+
+      console.log(
+        `${clip.name} + ${nextClip.name} = ${amount.toFixed(2)}`
+      );
+    }
+  });
+
   return (
     <div className="workspace-page">
       <h1>Workspace</h1>
 
       <div className="workspace-layout">
-
         {/* LIBRARY */}
         <div className="library-panel">
           <h2>Sound Library</h2>
@@ -153,7 +220,27 @@ export default function WorkspaceView() {
           {timelineClips.map((clip) => (
             <div
               key={clip.id}
-              className="timeline-clip"
+              className={`timeline-clip
+                ${draggingId === clip.id ? "dragging" : ""}
+                ${overlaps.includes(clip.id) ? "overlap" : ""}
+              `}
+              draggable
+              onDragStart={() => {
+                setDraggingId(clip.id);
+              }}
+              onDragEnd={() => {
+                setDraggingId(null);
+              }}
+              onDrag={(e) => {
+                if (e.clientX <= 0) return;
+
+                const timelineLeft =
+                  e.currentTarget.parentElement?.getBoundingClientRect().left || 0;
+
+                const newStart = e.clientX - timelineLeft - 100;
+
+                moveClip(clip.id, newStart);
+              }}
               onClick={() => playSound(clip.filename)}
               style={{
                 left: `${clip.start}px`,
@@ -161,7 +248,20 @@ export default function WorkspaceView() {
                 background: clip.color,
               }}
             >
-              {clip.name}
+              <span>{clip.name}</span>
+
+              <button
+                className="delete-clip-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+
+                  setTimelineClips((prev) =>
+                    prev.filter((c) => c.id !== clip.id)
+                  );
+                }}
+              >
+                ✕
+              </button>
             </div>
           ))}
         </div>

@@ -268,3 +268,55 @@ button:hover {
   transform: scale(1.03);
   background: #38e8ff;
 }
+
+.timeline-clip.overlap {
+  box-shadow:
+    0 0 18px rgba(255, 170, 0, 0.9),
+    0 0 35px rgba(255, 120, 0, 0.5);
+
+  border: 2px solid #ffb300;
+}
+
+
+.delete-clip-btn {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+
+  width: 24px;
+  height: 24px;
+
+  border-radius: 50%;
+  border: none;
+
+  background: #ff4d4d;
+  color: white;
+
+  font-size: 12px;
+  font-weight: bold;
+
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0;
+
+  z-index: 20;
+}
+
+.delete-clip-btn:hover {
+  background: #ff2222;
+}
+
+.interpolation-status {
+  margin-bottom: 18px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #00d8ff;
+  font-weight: 600;
+  font-size: 15px;
+}
