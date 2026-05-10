@@ -1,7 +1,7 @@
 # =========================
 # Python basics
 # =========================
-__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -44,11 +44,18 @@ data/
 results/
 app/frontend/dist/
 app/frontend/build/
+app/backend/inference/cache/
 
 # =========================
 # Jupyter Notebook noise
 # =========================
 .ipynb_checkpoints/
+
+# =========================
+# Frontend build / dev caches
+# =========================
+.vite/
+app/frontend/.vite/
 
 # =========================
 # OS files
