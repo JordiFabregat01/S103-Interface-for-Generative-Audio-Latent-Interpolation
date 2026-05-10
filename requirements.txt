@@ -1,4 +1,3 @@
-# Dependencies from SCAPES
 torchdiffeq
 torch
 torchaudio
@@ -9,9 +8,4 @@ soundfile
 transformers
 tqdm
 msclap
-
-# Backend dependencies
-fastapi
-uvicorn
-pydantic
 scikit-learn
