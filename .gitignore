@@ -44,6 +44,7 @@ data/
 results/
 app/frontend/dist/
 app/frontend/build/
+app/backend/inference/cache/
 
 # =========================
 # Jupyter Notebook noise

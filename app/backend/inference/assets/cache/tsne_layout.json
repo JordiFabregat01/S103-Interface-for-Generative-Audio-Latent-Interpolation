@@ -1,0 +1,177 @@
+[
+  {
+    "id": 0,
+    "name": "ArticWind",
+    "filename": "ArticWind.wav",
+    "x": 0.8217881321907043,
+    "y": 0.5396649241447449
+  },
+  {
+    "id": 1,
+    "name": "Bees",
+    "filename": "Bees.wav",
+    "x": 0.3593951165676117,
+    "y": 0.3463711738586426
+  },
+  {
+    "id": 2,
+    "name": "BirdAmbience",
+    "filename": "BirdAmbience.wav",
+    "x": 0.443411260843277,
+    "y": 0.07576127350330353
+  },
+  {
+    "id": 3,
+    "name": "BreakingWater",
+    "filename": "BreakingWater.wav",
+    "x": 0.6909130811691284,
+    "y": 0.1849905401468277
+  },
+  {
+    "id": 4,
+    "name": "Breeze",
+    "filename": "Breeze.wav",
+    "x": 0.839643120765686,
+    "y": 0.44798654317855835
+  },
+  {
+    "id": 5,
+    "name": "camp_fire",
+    "filename": "camp_fire.wav",
+    "x": 0.19188185036182404,
+    "y": 0.8855153918266296
+  },
+  {
+    "id": 6,
+    "name": "CicadasClean",
+    "filename": "CicadasClean.wav",
+    "x": 0.22180475294589996,
+    "y": 0.05845963582396507
+  },
+  {
+    "id": 7,
+    "name": "CornfieldWind",
+    "filename": "CornfieldWind.wav",
+    "x": 0.34573492407798767,
+    "y": 0.4450262188911438
+  },
+  {
+    "id": 8,
+    "name": "crickets",
+    "filename": "crickets.wav",
+    "x": 0.2714041769504547,
+    "y": 0.0
+  },
+  {
+    "id": 9,
+    "name": "footsteps",
+    "filename": "footsteps.wav",
+    "x": 0.3308195173740387,
+    "y": 0.5564646124839783
+  },
+  {
+    "id": 10,
+    "name": "IceStorm",
+    "filename": "IceStorm.wav",
+    "x": 0.19947712123394012,
+    "y": 0.7941340208053589
+  },
+  {
+    "id": 11,
+    "name": "IntenseBreeze",
+    "filename": "IntenseBreeze.wav",
+    "x": 0.7233126759529114,
+    "y": 0.446658194065094
+  },
+  {
+    "id": 12,
+    "name": "keyboard",
+    "filename": "keyboard.wav",
+    "x": 0.15927445888519287,
+    "y": 0.18509918451309204
+  },
+  {
+    "id": 13,
+    "name": "LoonCall",
+    "filename": "LoonCall.wav",
+    "x": 1.0,
+    "y": 0.12652073800563812
+  },
+  {
+    "id": 14,
+    "name": "rain",
+    "filename": "rain.wav",
+    "x": 0.06625692546367645,
+    "y": 0.5901062488555908
+  },
+  {
+    "id": 15,
+    "name": "RainOnLeaves",
+    "filename": "RainOnLeaves.wav",
+    "x": 0.08547463268041611,
+    "y": 0.7023832201957703
+  },
+  {
+    "id": 16,
+    "name": "sea_waves",
+    "filename": "sea_waves.wav",
+    "x": 0.6404193639755249,
+    "y": 0.30882418155670166
+  },
+  {
+    "id": 17,
+    "name": "Seagulls",
+    "filename": "Seagulls.wav",
+    "x": 0.9307401180267334,
+    "y": 0.12161174416542053
+  },
+  {
+    "id": 18,
+    "name": "SlowRiver",
+    "filename": "SlowRiver.wav",
+    "x": 0.7953007221221924,
+    "y": 0.9266524314880371
+  },
+  {
+    "id": 19,
+    "name": "SnowSteps",
+    "filename": "SnowSteps.wav",
+    "x": 0.3512973487377167,
+    "y": 0.6783594489097595
+  },
+  {
+    "id": 20,
+    "name": "ThunderStorm",
+    "filename": "ThunderStorm.wav",
+    "x": 0.0,
+    "y": 0.651000440120697
+  },
+  {
+    "id": 21,
+    "name": "UnderwaterFlow",
+    "filename": "UnderwaterFlow.wav",
+    "x": 0.7913942933082581,
+    "y": 0.7823955416679382
+  },
+  {
+    "id": 22,
+    "name": "waterfall",
+    "filename": "waterfall.wav",
+    "x": 0.7356407642364502,
+    "y": 1.0
+  },
+  {
+    "id": 23,
+    "name": "WaterOnRocks",
+    "filename": "WaterOnRocks.wav",
+    "x": 0.7021998167037964,
+    "y": 0.9065932035446167
+  },
+  {
+    "id": 24,
+    "name": "Wind&Rain",
+    "filename": "Wind&Rain.wav",
+    "x": 0.6192967295646667,
+    "y": 0.4076874852180481
+  }
+]
