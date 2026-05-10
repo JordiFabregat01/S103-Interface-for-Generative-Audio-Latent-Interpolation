@@ -1,9 +1,12 @@
 import math
 import logging
+import os
+import threading
 import time
 from functools import lru_cache
 from io import BytesIO
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Callable, Optional, Tuple
 
 import soundfile as sf
 import torch
@@ -250,7 +253,13 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     return buffer.getvalue()
 
 
-def render_interpolation_audio(request: InterpolationElement) -> bytes:
+def _run_interpolation(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+):
+    """Drive ``interpolate_clips`` for an :class:`InterpolationElement` payload."""
     engine = get_inference_engine()
 
     src_a = get_or_encode(engine, request.audio1)
@@ -270,8 +279,8 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         nfe=request.nfe,
         decode_method=request.decode_method,
         context_mode_override=request.context_mode,
-        # cancel_event / progress not wired to the synchronous /interpolate
-        # endpoint yet; left as None until a streaming endpoint exists.
+        cancel_event=cancel_event,
+        progress=progress,
     )
     elapsed = time.time() - start_time
     logger.info(
@@ -282,5 +291,36 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         result.context_mode,
         result.duration_sec,
     )
+    return result
+
+
+def render_interpolation_audio(request: InterpolationElement) -> bytes:
+    """Synchronous render path used by the legacy ``/interpolate`` endpoint."""
+    result = _run_interpolation(request)
     return _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+
+def render_interpolation_to_file(
+    request: InterpolationElement,
+    output_path: Path,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """Render an interpolation and atomically persist the WAV to ``output_path``.
+
+    Returns the size in bytes of the written file. Used by the async ``/render``
+    job runner; supports cooperative cancellation through ``cancel_event`` and
+    progress reporting via ``progress(done, total)``.
+    """
+    result = _run_interpolation(
+        request, cancel_event=cancel_event, progress=progress
+    )
+    audio_bytes = _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp_path.write_bytes(audio_bytes)
+    os.replace(tmp_path, output_path)
+    return len(audio_bytes)
 
