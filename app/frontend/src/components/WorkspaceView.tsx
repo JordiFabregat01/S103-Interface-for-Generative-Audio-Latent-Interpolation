@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, interpolate, type SoundPoint } from "../api";
+import {
+  getSounds,
+  getSoundUrl,
+  runRenderJob,
+  type JobSnapshot,
+  type SoundPoint,
+} from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 type TimelineClip = {
@@ -40,7 +46,9 @@ export default function WorkspaceView() {
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const [interpDuration, setInterpDuration] = useState(3.0);
+  const [interpStatus, setInterpStatus] = useState<JobSnapshot | null>(null);
   const interpUrlRef = useRef<string | null>(null);
+  const interpAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     getSounds()
@@ -87,28 +95,72 @@ export default function WorkspaceView() {
       return;
     }
 
+    interpAbortRef.current?.abort();
+    const controller = new AbortController();
+    interpAbortRef.current = controller;
+
     setInterpLoading(true);
     setInterpError(null);
+    setInterpStatus({ status: "queued", progress: { done: 0, total: 0 } });
     if (interpUrlRef.current) {
-      URL.revokeObjectURL(interpUrlRef.current);
+      // Object URLs from a previous interpolate() blob; result URLs from the
+      // job endpoint don't need revoking but stale object URLs do.
+      if (interpUrlRef.current.startsWith("blob:")) {
+        URL.revokeObjectURL(interpUrlRef.current);
+      }
       interpUrlRef.current = null;
     }
     setInterpUrl(null);
     try {
-      const url = await interpolate({
-        audio1: a1,
-        audio2: a2,
-        distance_sec: 0.0,
-        duration_sec: interpDuration,
-      });
-      interpUrlRef.current = url;
-      setInterpUrl(url);
+      const result = await runRenderJob(
+        {
+          audio1: a1,
+          audio2: a2,
+          distance_sec: 0.0,
+          duration_sec: interpDuration,
+        },
+        {
+          signal: controller.signal,
+          onProgress: (snapshot) => setInterpStatus(snapshot),
+        }
+      );
+      interpUrlRef.current = result.url;
+      setInterpUrl(result.url);
     } catch (err) {
-      setInterpError(err instanceof Error ? err.message : "Interpolation failed");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setInterpError("Render cancelled");
+      } else {
+        setInterpError(err instanceof Error ? err.message : "Interpolation failed");
+      }
     } finally {
+      if (interpAbortRef.current === controller) {
+        interpAbortRef.current = null;
+      }
       setInterpLoading(false);
+      setInterpStatus(null);
     }
   };
+
+  const cancelInterpolation = () => {
+    interpAbortRef.current?.abort();
+  };
+
+  useEffect(() => {
+    return () => {
+      interpAbortRef.current?.abort();
+    };
+  }, []);
+
+  const interpProgressLabel = (() => {
+    if (!interpStatus) return null;
+    if (interpStatus.status === "queued") return "Queued…";
+    if (interpStatus.status === "running") {
+      const { done, total } = interpStatus.progress;
+      if (total > 0) return `Rendering ${done}/${total}…`;
+      return "Rendering…";
+    }
+    return null;
+  })();
 
   const overlaps: number[] = [];
   timelineClips.forEach((clip, index) => {
@@ -216,8 +268,17 @@ export default function WorkspaceView() {
             onClick={runInterpolation}
             disabled={!canInterpolate || interpLoading}
           >
-            {interpLoading ? "Generating…" : "Interpolate"}
+            {interpLoading ? interpProgressLabel ?? "Generating…" : "Interpolate"}
           </button>
+          {interpLoading && (
+            <button
+              className="interpolate-btn"
+              onClick={cancelInterpolation}
+              type="button"
+            >
+              Cancel
+            </button>
+          )}
         </div>
 
         {interpError && <p className="interp-error">{interpError}</p>}
