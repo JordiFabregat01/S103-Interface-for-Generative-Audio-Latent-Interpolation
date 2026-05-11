@@ -459,7 +459,7 @@
   align-items: center;
   box-sizing: border-box;
   cursor: grab;
-  overflow: hidden;
+  overflow: visible;
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -483,6 +483,65 @@
 .timeline-clip.overlap {
   border-color: rgba(245, 158, 11, 0.5);
   background: rgba(245, 158, 11, 0.08);
+}
+
+.timeline-clip.selected {
+  border-color: var(--accent);
+  background: rgba(74, 143, 245, 0.22);
+  color: var(--text-1);
+  box-shadow: 0 0 0 2px rgba(74, 143, 245, 0.35);
+  padding-left: 14px;
+}
+
+/* ─── Clip label (clipped to clip body) ──────────────────────── */
+.clip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  pointer-events: none;
+}
+
+/* ─── Duration badge shown while selected ────────────────────── */
+.clip-duration-badge {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(74, 143, 245, 0.12);
+  border: 1px solid rgba(74, 143, 245, 0.25);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 6px;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+/* ─── Resize handles ─────────────────────────────────────────── */
+.clip-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 10;
+  background: var(--accent);
+  opacity: 0.55;
+  border-radius: 3px;
+  transition: opacity 0.12s;
+}
+
+.clip-resize-handle:hover {
+  opacity: 1;
+}
+
+.clip-resize-left {
+  left: 0;
+  border-radius: 4px 0 0 4px;
+}
+
+.clip-resize-right {
+  right: 0;
+  border-radius: 0 4px 4px 0;
 }
 
 /* ─── Delete Clip Button ─────────────────────────────────────── */
@@ -516,7 +575,8 @@
   z-index: 20;
 }
 
-.timeline-clip:hover .delete-clip-btn {
+.timeline-clip:hover .delete-clip-btn,
+.timeline-clip.selected .delete-clip-btn {
   opacity: 1;
 }
 
