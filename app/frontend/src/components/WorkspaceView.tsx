@@ -24,6 +24,26 @@ const PX_PER_SEC = 80;
 const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
+const SNAP_THRESHOLD_SEC = 0.15;
+
+function snapEdge(value: number, targets: number[]): { snapped: number; dist: number } {
+  let best = value;
+  let bestDist = SNAP_THRESHOLD_SEC;
+  for (const t of targets) {
+    const d = Math.abs(value - t);
+    if (d < bestDist) { bestDist = d; best = t; }
+  }
+  return { snapped: best, dist: bestDist };
+}
+
+function clipEdgeTargets(clips: TimelineClip[], excludeId: number): number[] {
+  const targets: number[] = [0];
+  for (const c of clips) {
+    if (c.id === excludeId) continue;
+    targets.push(c.start, c.start + c.duration);
+  }
+  return targets;
+}
 
 const VALID_AUDIO_ELEMENTS = new Set(["camp_fire", "keyboard"]);
 
@@ -55,6 +75,8 @@ export default function WorkspaceView() {
   const [dragExtentPx, setDragExtentPx] = useState(0);
   const [dragStartWidth, setDragStartWidth] = useState(0);
   const autoScrollRaf = useRef<number | null>(null);
+  const clipsRef = useRef<TimelineClip[]>([]);
+  useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -69,13 +91,18 @@ export default function WorkspaceView() {
     if (!resizing) return;
     const onMove = (e: MouseEvent) => {
       const dx = (e.clientX - resizing.startMouseX) / PX_PER_SEC;
-      setTimelineClips((prev) =>
-        prev.map((c) => {
+      setTimelineClips((prev) => {
+        const targets = clipEdgeTargets(prev, resizing.id);
+        return prev.map((c) => {
           if (c.id !== resizing.id) return c;
           if (resizing.edge === "right") {
-            return { ...c, duration: Math.max(MIN_CLIP_DURATION_SEC, resizing.startDur + dx) };
+            const rawRight = resizing.startSec + resizing.startDur + dx;
+            const { snapped } = snapEdge(rawRight, targets);
+            return { ...c, duration: Math.max(MIN_CLIP_DURATION_SEC, snapped - resizing.startSec) };
           } else {
-            const newStart = Math.max(0, resizing.startSec + dx);
+            const rawLeft = resizing.startSec + dx;
+            const { snapped } = snapEdge(rawLeft, targets);
+            const newStart = Math.max(0, snapped);
             const moved = newStart - resizing.startSec;
             return {
               ...c,
@@ -83,8 +110,8 @@ export default function WorkspaceView() {
               duration: Math.max(MIN_CLIP_DURATION_SEC, resizing.startDur - moved),
             };
           }
-        })
-      );
+        });
+      });
     };
     const onUp = () => setResizing(null);
     document.addEventListener("mousemove", onMove);
@@ -190,12 +217,12 @@ export default function WorkspaceView() {
     }
     setInterpUrl(null);
     try {
-      // duration_sec will be derived from clip positions once distance_sec wiring is done
+      const distanceSec = clipB.start - (clipA.start + clipA.duration);
       const url = await interpolate({
         audio1: a1,
         audio2: a2,
-        distance_sec: 0.0,
-        duration_sec: 3.0,
+        distance_sec: distanceSec,
+        ...(distanceSec === 0 ? { duration_sec: Math.min(clipA.duration, clipB.duration) } : {}),
       });
       interpUrlRef.current = url;
       setInterpUrl(url);
@@ -206,11 +233,22 @@ export default function WorkspaceView() {
     }
   };
 
+  const sortedClips = [...timelineClips].sort((a, b) => a.start - b.start);
+
   const overlaps: number[] = [];
-  [...timelineClips].sort((a, b) => a.start - b.start).forEach((clip, index, arr) => {
+  sortedClips.forEach((clip, index, arr) => {
     const next = arr[index + 1];
     if (next && clip.start < next.start + next.duration && clip.start + clip.duration > next.start) {
       overlaps.push(clip.id, next.id);
+    }
+  });
+
+  // Junction positions (px) where two clips are exactly touching (snapped)
+  const snapJoints: number[] = [];
+  sortedClips.forEach((clip, index, arr) => {
+    const next = arr[index + 1];
+    if (next && Math.abs(next.start - (clip.start + clip.duration)) < 0.01) {
+      snapJoints.push((clip.start + clip.duration) * PX_PER_SEC);
     }
   });
 
@@ -429,6 +467,10 @@ export default function WorkspaceView() {
               <div className="timeline-empty-hint">Drag sounds here to build the timeline</div>
             )}
 
+            {snapJoints.map((x) => (
+              <div key={x} className="snap-joint" style={{ left: `${x}px` }} />
+            ))}
+
             {timelineClips.map((clip) => {
               const isSelected = selectedClipId === clip.id;
               const leftPx = clip.start * PX_PER_SEC;
@@ -448,7 +490,12 @@ export default function WorkspaceView() {
                   onDrag={(e) => {
                     if (e.clientX <= 0) return;
                     const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
-                    moveClip(clip.id, (e.clientX - timelineLeft) / PX_PER_SEC - clip.duration / 2);
+                    const rawStart = (e.clientX - timelineLeft) / PX_PER_SEC - clip.duration / 2;
+                    const targets = clipEdgeTargets(clipsRef.current, clip.id);
+                    const left = snapEdge(rawStart, targets);
+                    const right = snapEdge(rawStart + clip.duration, targets);
+                    const snapped = left.dist <= right.dist ? left.snapped : right.snapped - clip.duration;
+                    moveClip(clip.id, Math.max(0, snapped));
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
