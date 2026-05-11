@@ -235,16 +235,20 @@ button:hover {
   margin-bottom: 4px;
 }
 
-.drop-zone {
-  margin-top: 20px;
-  height: 300px;
-  border: 2px dashed #00d8ff;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #888;
-  font-size: 18px;
+.explorer-plot-wrap {
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #181818;
+  border: 1px solid #2a2a2a;
+}
+
+.explorer-plot {
+  position: absolute;
+  inset: 12px;
 }
 
 /* ---------- TIMELINE PANEL ---------- */
