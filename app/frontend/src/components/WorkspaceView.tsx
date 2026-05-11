@@ -3,6 +3,7 @@ import "../App.css";
 import { getSounds, getSoundUrl, interpolate, type SoundPoint } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
+// start and duration are stored in seconds; pixels = value * PX_PER_SEC
 type TimelineClip = {
   id: number;
   name: string;
@@ -11,9 +12,18 @@ type TimelineClip = {
   duration: number;
 };
 
+type ResizeState = {
+  id: number;
+  edge: "left" | "right";
+  startMouseX: number;
+  startSec: number;
+  startDur: number;
+};
+
 const PX_PER_SEC = 80;
-const CLIP_WIDTH_PX = 240;
+const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
+const MIN_CLIP_DURATION_SEC = 0.25;
 
 const VALID_AUDIO_ELEMENTS = new Set(["camp_fire", "keyboard"]);
 
@@ -32,6 +42,8 @@ export default function WorkspaceView() {
   const [sounds, setSounds] = useState<SoundPoint[]>([]);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [selectedClipId, setSelectedClipId] = useState<number | null>(null);
+  const [resizing, setResizing] = useState<ResizeState | null>(null);
   const [selectedSound, setSelectedSound] = useState<SoundPoint | null>(null);
   const [explorerSelected, setExplorerSelected] = useState<SoundPoint | null>(null);
   const previewPlayer = useAudioPlayer();
@@ -51,6 +63,37 @@ export default function WorkspaceView() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Resize handle drag via mouse events (more reliable than HTML drag for edge resizing)
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e: MouseEvent) => {
+      const dx = (e.clientX - resizing.startMouseX) / PX_PER_SEC;
+      setTimelineClips((prev) =>
+        prev.map((c) => {
+          if (c.id !== resizing.id) return c;
+          if (resizing.edge === "right") {
+            return { ...c, duration: Math.max(MIN_CLIP_DURATION_SEC, resizing.startDur + dx) };
+          } else {
+            const newStart = Math.max(0, resizing.startSec + dx);
+            const moved = newStart - resizing.startSec;
+            return {
+              ...c,
+              start: newStart,
+              duration: Math.max(MIN_CLIP_DURATION_SEC, resizing.startDur - moved),
+            };
+          }
+        })
+      );
+    };
+    const onUp = () => setResizing(null);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, [resizing]);
 
   const stopAutoScroll = () => {
     if (autoScrollRaf.current !== null) {
@@ -92,7 +135,6 @@ export default function WorkspaceView() {
   const [interpLoading, setInterpLoading] = useState(false);
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
-  const [interpDuration, setInterpDuration] = useState(3.0);
   const interpUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -114,10 +156,10 @@ export default function WorkspaceView() {
     return "🎵";
   };
 
-  const moveClip = (id: number, newStart: number) => {
+  const moveClip = (id: number, newStartSec: number) => {
     setTimelineClips((prev) =>
       prev.map((clip) =>
-        clip.id === id ? { ...clip, start: Math.max(0, newStart) } : clip
+        clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
       )
     );
   };
@@ -148,11 +190,12 @@ export default function WorkspaceView() {
     }
     setInterpUrl(null);
     try {
+      // duration_sec will be derived from clip positions once distance_sec wiring is done
       const url = await interpolate({
         audio1: a1,
         audio2: a2,
         distance_sec: 0.0,
-        duration_sec: interpDuration,
+        duration_sec: 3.0,
       });
       interpUrlRef.current = url;
       setInterpUrl(url);
@@ -171,9 +214,10 @@ export default function WorkspaceView() {
     }
   });
 
-  const rightmostPx = timelineClips
+  const rightmostSec = timelineClips
     .filter((c) => c.id !== draggingId)
     .reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+  const rightmostPx = rightmostSec * PX_PER_SEC;
   const snapUp = (px: number) => Math.ceil(px / PX_PER_SEC) * PX_PER_SEC;
   const clipWidth = rightmostPx > 0 ? snapUp(rightmostPx + TIMELINE_BUFFER_PX) : 0;
   const dragWidth = dragExtentPx > containerWidth ? snapUp(dragExtentPx + TIMELINE_BUFFER_PX) : 0;
@@ -186,6 +230,7 @@ export default function WorkspaceView() {
 
   const deleteClip = (id: number) => {
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
+    if (selectedClipId === id) setSelectedClipId(null);
   };
 
   return (
@@ -334,18 +379,6 @@ export default function WorkspaceView() {
             )}
           </div>
           <div className="timeline-header-right">
-            <label className="duration-label">
-              Duration: <strong>{interpDuration.toFixed(1)}s</strong>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                step={0.5}
-                value={interpDuration}
-                onChange={(e) => setInterpDuration(Number(e.target.value))}
-                className="interp-slider"
-              />
-            </label>
             <button
               className="interpolate-btn"
               onClick={runInterpolation}
@@ -373,6 +406,9 @@ export default function WorkspaceView() {
             onDragLeave={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node)) stopAutoScroll();
             }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedClipId(null);
+            }}
             onDrop={(e) => {
               resetDragState();
               const sound = dragSoundRef.current;
@@ -383,8 +419,8 @@ export default function WorkspaceView() {
                 id: Date.now(),
                 name: sound.name,
                 filename: sound.filename,
-                start: Math.max(0, dropX - CLIP_WIDTH_PX / 2),
-                duration: CLIP_WIDTH_PX,
+                start: Math.max(0, dropX / PX_PER_SEC - DEFAULT_CLIP_DURATION_SEC / 2),
+                duration: DEFAULT_CLIP_DURATION_SEC,
               };
               setTimelineClips((prev) => [...prev, newClip]);
             }}
@@ -393,31 +429,68 @@ export default function WorkspaceView() {
               <div className="timeline-empty-hint">Drag sounds here to build the timeline</div>
             )}
 
-            {timelineClips.map((clip) => (
-              <div
-                key={clip.id}
-                className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}`}
-                draggable
-                onDragStart={() => { setDraggingId(clip.id); setDragStartWidth(timelineWidth); }}
-                onDragEnd={() => { setDraggingId(null); resetDragState(); }}
-                onDrag={(e) => {
-                  if (e.clientX <= 0) return;
-                  const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
-                  moveClip(clip.id, e.clientX - timelineLeft - CLIP_WIDTH_PX / 2);
-                }}
-                onClick={() => {
-                  setSelectedSound(sounds.find((s) => s.filename === clip.filename) ?? null);
-                }}
-                style={{ left: `${clip.start}px`, width: `${clip.duration}px` }}
-              >
-                {clip.name}
-                <button
-                  className="delete-clip-btn"
-                  onClick={(e) => { e.stopPropagation(); deleteClip(clip.id); }}
-                  title="Remove"
-                >✕</button>
-              </div>
-            ))}
+            {timelineClips.map((clip) => {
+              const isSelected = selectedClipId === clip.id;
+              const leftPx = clip.start * PX_PER_SEC;
+              const widthPx = clip.duration * PX_PER_SEC;
+              return (
+                <div
+                  key={clip.id}
+                  className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}${isSelected ? " selected" : ""}`}
+                  draggable={!resizing}
+                  onDragStart={(e) => {
+                    if (resizing) { e.preventDefault(); return; }
+                    setDraggingId(clip.id);
+                    setDragStartWidth(timelineWidth);
+                    setSelectedClipId(null);
+                  }}
+                  onDragEnd={() => { setDraggingId(null); resetDragState(); }}
+                  onDrag={(e) => {
+                    if (e.clientX <= 0) return;
+                    const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
+                    moveClip(clip.id, (e.clientX - timelineLeft) / PX_PER_SEC - clip.duration / 2);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedClipId((prev) => (prev === clip.id ? null : clip.id));
+                  }}
+                  style={{ left: `${leftPx}px`, width: `${widthPx}px` }}
+                >
+                  {isSelected && (
+                    <div
+                      className="clip-resize-handle clip-resize-left"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setResizing({ id: clip.id, edge: "left", startMouseX: e.clientX, startSec: clip.start, startDur: clip.duration });
+                      }}
+                    />
+                  )}
+
+                  <span className="clip-label">{clip.name}</span>
+                  {isSelected && (
+                    <span className="clip-duration-badge">{clip.duration.toFixed(2)}s</span>
+                  )}
+
+                  {isSelected && (
+                    <div
+                      className="clip-resize-handle clip-resize-right"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setResizing({ id: clip.id, edge: "right", startMouseX: e.clientX, startSec: clip.start, startDur: clip.duration });
+                      }}
+                    />
+                  )}
+
+                  <button
+                    className="delete-clip-btn"
+                    onClick={(e) => { e.stopPropagation(); deleteClip(clip.id); }}
+                    title="Remove"
+                  >✕</button>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
