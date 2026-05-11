@@ -247,6 +247,8 @@ button:hover {
   font-size: 18px;
 }
 
+/* ---------- TIMELINE PANEL ---------- */
+
 .timeline-panel {
   flex-shrink: 0;
   margin-top: 16px;
@@ -267,41 +269,118 @@ button:hover {
   letter-spacing: -0.5px;
 }
 
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.timeline-header h2 {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.timeline-header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.timeline-scroll {
+  margin-top: 12px;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.timeline-ruler {
+  position: relative;
+  height: 20px;
+  margin-bottom: 6px;
+}
+
+.timeline-ruler-mark {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.timeline-ruler-tick {
+  width: 1px;
+  height: 6px;
+  background: #444;
+}
+
+.timeline-ruler-label {
+  font-size: 10px;
+  color: #666;
+  font-family: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
 .timeline {
   position: relative;
-  margin-top: 20px;
-  height: 140px;
-  border-radius: 12px;
-  border: 2px dashed #555;
-  background: #181818;
-  overflow: hidden;
+  height: 120px;
+  background:
+    repeating-linear-gradient(
+      to right,
+      #181818 0,
+      #181818 79px,
+      #2a2a2a 79px,
+      #2a2a2a 80px
+    ),
+    #181818;
+  border: 1px solid #333;
+  border-radius: 6px;
+  user-select: none;
+  touch-action: none;
+}
+
+.timeline-empty-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 13px;
+  pointer-events: none;
 }
 
 .timeline-clip {
   position: absolute;
-  top: 40px;
-  height: 50px;
-  border-radius: 10px;
+  top: 8px;
+  bottom: 8px;
+  z-index: 1;
+  background: rgba(0, 216, 255, 0.1);
+  border: 1px solid rgba(0, 216, 255, 0.4);
+  border-radius: 6px;
+  padding: 0 10px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: white;
+  box-sizing: border-box;
+  cursor: grab;
+  overflow: hidden;
+  font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
-  transition: 0.2s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  color: #ccc;
+  white-space: nowrap;
 }
 
-.timeline-clip:hover {
-  transform: scale(1.03);
+.timeline-clip:active {
+  cursor: grabbing;
 }
 
-.timeline-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+.timeline-clip.dragging {
+  opacity: 0.5;
+}
+
+.timeline-clip.overlap {
+  border-color: rgba(255, 179, 0, 0.6);
+  background: rgba(255, 179, 0, 0.1);
 }
 
 .duration-label {
@@ -311,33 +390,6 @@ button:hover {
   font-size: 13px;
   color: #aaa;
   flex-shrink: 0;
-}
-
-.play-timeline-btn {
-  width: auto;
-  padding: 10px 18px;
-  margin-top: 10px;
-  margin-bottom: 20px;
-  background: #00d8ff;
-  color: #111;
-  border: none;
-  border-radius: 10px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.play-timeline-btn:hover {
-  transform: scale(1.03);
-  background: #38e8ff;
-}
-
-.timeline-clip.overlap {
-  box-shadow:
-    0 0 18px rgba(255, 170, 0, 0.9),
-    0 0 35px rgba(255, 120, 0, 0.5);
-
-  border: 2px solid #ffb300;
 }
 
 .delete-clip-btn {
