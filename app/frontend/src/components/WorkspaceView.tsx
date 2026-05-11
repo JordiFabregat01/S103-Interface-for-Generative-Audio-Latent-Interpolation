@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
 import { getSounds, getSoundUrl, interpolate, type SoundPoint } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
@@ -33,8 +33,10 @@ export default function WorkspaceView() {
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [selectedSound, setSelectedSound] = useState<SoundPoint | null>(null);
+  const [explorerSelected, setExplorerSelected] = useState<SoundPoint | null>(null);
   const previewPlayer = useAudioPlayer();
   const interpPlayer = useAudioPlayer();
+  const explorerPlayer = useAudioPlayer();
   const dragSoundRef = useRef<SoundPoint | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -180,9 +182,11 @@ export default function WorkspaceView() {
 
   const canInterpolate = timelineClips.length >= 2;
 
+  const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
+
   return (
     <div className="workspace-page">
-      <h1>Workspace</h1>
+      <h1>Generative Audio Latent Interpolation</h1>
 
       <div className="workspace-layout">
         <div className="library-panel">
@@ -250,8 +254,51 @@ export default function WorkspaceView() {
         </div>
 
         <div className="drop-panel">
-          <h2>Interpolation Area</h2>
-          <div className="drop-zone">Drag sounds here</div>
+          <h2>Latent Space Exploration</h2>
+          <p className="library-hint">Click to preview · Drag to timeline</p>
+          <div className="explorer-plot-wrap">
+            <div className="explorer-plot">
+              {placedPoints.map((point) => (
+                <div
+                  key={point.id}
+                  className={`dot${explorerSelected?.id === point.id ? " selected" : ""}`}
+                  style={{ left: `${point.px}%`, top: `${point.py}%` }}
+                  draggable
+                  onDragStart={() => { dragSoundRef.current = point; }}
+                  onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
+                  onClick={() => {
+                    if (explorerSelected?.id === point.id) {
+                      explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(point.filename));
+                    } else {
+                      explorerPlayer.pause();
+                      setExplorerSelected(point);
+                      explorerPlayer.play(getSoundUrl(point.filename));
+                    }
+                  }}
+                  title={point.name}
+                >
+                  <span className="dot-marker">●</span>
+                  <span className="dot-label">{point.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {explorerSelected && (
+            <div className="sound-preview-panel">
+              <div className="sound-preview-header">
+                <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
+                <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
+              </div>
+              <div className="preview-controls">
+                <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename)); }} title="Restart">↺</button>
+                <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename))}>
+                  {explorerPlayer.isPlaying ? "⏸" : "▶"}
+                </button>
+                <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
+                <span className="audio-time">{fmt(explorerPlayer.currentTime)} / {fmt(explorerPlayer.duration)}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
