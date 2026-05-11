@@ -29,8 +29,6 @@ export type InterpolationRequest = {
 /** Returns an object URL for the generated WAV. Caller must revoke it when done. */
 export const interpolate = async (req: InterpolationRequest): Promise<string> => {
   const body: Record<string, unknown> = {
-    distance_sec: 0.0,
-    duration_sec: 3.0,
     nfe: 8,
     context_mode: "auto",
     ...req,
