@@ -9,10 +9,11 @@ type TimelineClip = {
   filename: string;
   start: number;
   duration: number;
-  color: string;
 };
 
-const COLORS = ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444"];
+const PX_PER_SEC = 80;
+const CLIP_WIDTH_PX = 240;
+const TIMELINE_BUFFER_PX = 400;
 
 const VALID_AUDIO_ELEMENTS = new Set(["camp_fire", "keyboard"]);
 
@@ -35,6 +36,56 @@ export default function WorkspaceView() {
   const previewPlayer = useAudioPlayer();
   const interpPlayer = useAudioPlayer();
   const dragSoundRef = useRef<SoundPoint | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [dragExtentPx, setDragExtentPx] = useState(0);
+  const autoScrollRaf = useRef<number | null>(null);
+  const dragStartWidthRef = useRef(0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setContainerWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const stopAutoScroll = () => {
+    if (autoScrollRaf.current !== null) {
+      cancelAnimationFrame(autoScrollRaf.current);
+      autoScrollRaf.current = null;
+    }
+  };
+
+  const resetDragState = () => {
+    stopAutoScroll();
+    setDragExtentPx(0);
+  };
+
+  const handleTimelineDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+
+    const EDGE_ZONE = 80;
+    const SCROLL_SPEED = 6;
+    const rect = scroll.getBoundingClientRect();
+
+    if (e.clientX > rect.right - EDGE_ZONE) {
+      if (autoScrollRaf.current === null) {
+        const tick = () => {
+          const s = scrollRef.current;
+          if (!s) return;
+          s.scrollLeft += SCROLL_SPEED;
+          setDragExtentPx(s.scrollLeft + s.clientWidth);
+          autoScrollRaf.current = requestAnimationFrame(tick);
+        };
+        autoScrollRaf.current = requestAnimationFrame(tick);
+      }
+    } else {
+      stopAutoScroll();
+    }
+  };
 
   const [interpLoading, setInterpLoading] = useState(false);
   const [interpError, setInterpError] = useState<string | null>(null);
@@ -111,12 +162,21 @@ export default function WorkspaceView() {
   };
 
   const overlaps: number[] = [];
-  timelineClips.forEach((clip, index) => {
-    const next = timelineClips[index + 1];
+  [...timelineClips].sort((a, b) => a.start - b.start).forEach((clip, index, arr) => {
+    const next = arr[index + 1];
     if (next && clip.start < next.start + next.duration && clip.start + clip.duration > next.start) {
       overlaps.push(clip.id, next.id);
     }
   });
+
+  const rightmostPx = timelineClips
+    .filter((c) => c.id !== draggingId)
+    .reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+  const snapUp = (px: number) => Math.ceil(px / PX_PER_SEC) * PX_PER_SEC;
+  const clipWidth = rightmostPx > 0 ? snapUp(rightmostPx + TIMELINE_BUFFER_PX) : 0;
+  const dragWidth = dragExtentPx > containerWidth ? snapUp(dragExtentPx + TIMELINE_BUFFER_PX) : 0;
+  const timelineWidth = Math.max(containerWidth, clipWidth, dragWidth, draggingId ? dragStartWidthRef.current : 0);
+  const rulerSeconds = Math.ceil(timelineWidth / PX_PER_SEC) + 1;
 
   const canInterpolate = timelineClips.length >= 2;
 
@@ -147,7 +207,7 @@ export default function WorkspaceView() {
                     }
                   }}
                   onDragStart={() => { dragSoundRef.current = sound; }}
-                  onDragEnd={() => { dragSoundRef.current = null; }}
+                  onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
                 >
                   <div className="sound-image">{getEmoji(sound.name)}</div>
                   <p>{sound.name}</p>
@@ -196,28 +256,29 @@ export default function WorkspaceView() {
       </div>
 
       <div className="timeline-panel">
-        <h2>Timeline</h2>
-
-        <div className="timeline-controls">
-          <label className="duration-label">
-            Interpolation duration: <strong>{interpDuration.toFixed(1)}s</strong>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              step={0.5}
-              value={interpDuration}
-              onChange={(e) => setInterpDuration(Number(e.target.value))}
-              className="interp-slider"
-            />
-          </label>
-          <button
-            className="interpolate-btn"
-            onClick={runInterpolation}
-            disabled={!canInterpolate || interpLoading}
-          >
-            {interpLoading ? "Generating…" : "Interpolate"}
-          </button>
+        <div className="timeline-header">
+          <h2>Timeline</h2>
+          <div className="timeline-header-right">
+            <label className="duration-label">
+              Duration: <strong>{interpDuration.toFixed(1)}s</strong>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={0.5}
+                value={interpDuration}
+                onChange={(e) => setInterpDuration(Number(e.target.value))}
+                className="interp-slider"
+              />
+            </label>
+            <button
+              className="interpolate-btn"
+              onClick={runInterpolation}
+              disabled={!canInterpolate || interpLoading}
+            >
+              {interpLoading ? "Generating…" : "Interpolate"}
+            </button>
+          </div>
         </div>
 
         {interpError && <p className="interp-error">{interpError}</p>}
@@ -246,46 +307,65 @@ export default function WorkspaceView() {
           </div>
         )}
 
-        <div
-          className="timeline"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            const sound = dragSoundRef.current;
-            if (!sound) return;
-            const timelineLeft = e.currentTarget.getBoundingClientRect().left;
-            const dropX = e.clientX - timelineLeft;
-            const newClip: TimelineClip = {
-              id: Date.now(),
-              name: sound.name,
-              filename: sound.filename,
-              start: Math.max(0, dropX - 110),
-              duration: 220,
-              color: COLORS[timelineClips.length % COLORS.length],
-            };
-            setTimelineClips((prev) => [...prev, newClip]);
-          }}
-        >
-          {timelineClips.map((clip) => (
-            <div
-              key={clip.id}
-              className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}`}
-              draggable
-              onDragStart={() => setDraggingId(clip.id)}
-              onDragEnd={() => setDraggingId(null)}
-              onDrag={(e) => {
-                if (e.clientX <= 0) return;
-                const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left || 0;
-                moveClip(clip.id, e.clientX - timelineLeft - 100);
-              }}
-              onClick={() => {
-                setSelectedSound(sounds.find((s) => s.filename === clip.filename) ?? null);
-                previewPlayer.play(getSoundUrl(clip.filename));
-              }}
-              style={{ left: `${clip.start}px`, width: `${clip.duration}px`, background: clip.color }}
-            >
-              <span>{clip.name}</span>
-            </div>
-          ))}
+        <div className="timeline-scroll" ref={scrollRef}>
+          <div className="timeline-ruler" style={{ width: `${timelineWidth}px` }}>
+            {Array.from({ length: rulerSeconds }, (_, s) => (
+              <div key={s} className="timeline-ruler-mark" style={{ left: `${s * PX_PER_SEC}px` }}>
+                <div className="timeline-ruler-tick" />
+                <span className="timeline-ruler-label">{s}s</span>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="timeline"
+            style={{ width: `${timelineWidth}px` }}
+            onDragOver={handleTimelineDragOver}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) stopAutoScroll();
+            }}
+            onDrop={(e) => {
+              resetDragState();
+              const sound = dragSoundRef.current;
+              if (!sound) return;
+              const timelineLeft = e.currentTarget.getBoundingClientRect().left;
+              const dropX = e.clientX - timelineLeft;
+              const newClip: TimelineClip = {
+                id: Date.now(),
+                name: sound.name,
+                filename: sound.filename,
+                start: Math.max(0, dropX - CLIP_WIDTH_PX / 2),
+                duration: CLIP_WIDTH_PX,
+              };
+              setTimelineClips((prev) => [...prev, newClip]);
+            }}
+          >
+            {timelineClips.length === 0 && (
+              <div className="timeline-empty-hint">Drag sounds here to build the timeline</div>
+            )}
+
+            {timelineClips.map((clip) => (
+              <div
+                key={clip.id}
+                className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}`}
+                draggable
+                onDragStart={() => { setDraggingId(clip.id); dragStartWidthRef.current = timelineWidth; }}
+                onDragEnd={() => { setDraggingId(null); resetDragState(); }}
+                onDrag={(e) => {
+                  if (e.clientX <= 0) return;
+                  const scroll = scrollRef.current;
+                  const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
+                  moveClip(clip.id, e.clientX - timelineLeft - CLIP_WIDTH_PX / 2);
+                }}
+                onClick={() => {
+                  setSelectedSound(sounds.find((s) => s.filename === clip.filename) ?? null);
+                }}
+                style={{ left: `${clip.start}px`, width: `${clip.duration}px` }}
+              >
+                {clip.name}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
