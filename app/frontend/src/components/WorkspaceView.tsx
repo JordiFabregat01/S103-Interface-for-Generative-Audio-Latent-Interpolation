@@ -45,7 +45,6 @@ function clipEdgeTargets(clips: TimelineClip[], excludeId: number): number[] {
   return targets;
 }
 
-const VALID_AUDIO_ELEMENTS = new Set(["camp_fire", "keyboard"]);
 
 function fmt(sec: number) {
   if (!isFinite(sec)) return "0:00";
@@ -55,7 +54,7 @@ function fmt(sec: number) {
 }
 
 function filenameToAudioElement(filename: string) {
-  return filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/\s+/g, "_");
+  return filename.replace(/\.[^.]+$/, "");
 }
 
 export default function WorkspaceView() {
@@ -198,16 +197,6 @@ export default function WorkspaceView() {
 
     const a1 = filenameToAudioElement(clipA.filename);
     const a2 = filenameToAudioElement(clipB.filename);
-    const unsupported = [
-      !VALID_AUDIO_ELEMENTS.has(a1) && clipA.name,
-      !VALID_AUDIO_ELEMENTS.has(a2) && clipB.name,
-    ].filter(Boolean);
-    if (unsupported.length > 0) {
-      setInterpError(
-        `Not supported yet: ${unsupported.join(", ")}. Currently only "Camp Fire" and "Keyboard" can be interpolated.`
-      );
-      return;
-    }
 
     setInterpLoading(true);
     setInterpError(null);
