@@ -41,8 +41,8 @@ export default function WorkspaceView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [dragExtentPx, setDragExtentPx] = useState(0);
+  const [dragStartWidth, setDragStartWidth] = useState(0);
   const autoScrollRaf = useRef<number | null>(null);
-  const dragStartWidthRef = useRef(0);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -177,16 +177,22 @@ export default function WorkspaceView() {
   const snapUp = (px: number) => Math.ceil(px / PX_PER_SEC) * PX_PER_SEC;
   const clipWidth = rightmostPx > 0 ? snapUp(rightmostPx + TIMELINE_BUFFER_PX) : 0;
   const dragWidth = dragExtentPx > containerWidth ? snapUp(dragExtentPx + TIMELINE_BUFFER_PX) : 0;
-  const timelineWidth = Math.max(containerWidth, clipWidth, dragWidth, draggingId ? dragStartWidthRef.current : 0);
+  const timelineWidth = Math.max(containerWidth, clipWidth, dragWidth, draggingId ? dragStartWidth : 0);
   const rulerSeconds = Math.ceil(timelineWidth / PX_PER_SEC) + 1;
 
   const canInterpolate = timelineClips.length >= 2;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
 
+  const deleteClip = (id: number) => {
+    setTimelineClips((prev) => prev.filter((c) => c.id !== id));
+  };
+
   return (
     <div className="workspace-page">
-      <h1>Generative Audio Latent Interpolation</h1>
+      <div className="app-header">
+        <h1>Generative Audio Latent Interpolation</h1>
+      </div>
 
       <div className="workspace-layout">
         <div className="library-panel">
@@ -268,7 +274,7 @@ export default function WorkspaceView() {
                   onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
                   onClick={() => {
                     if (explorerSelected?.id === point.id) {
-                      explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(point.filename));
+                      if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
                     } else {
                       explorerPlayer.pause();
                       setExplorerSelected(point);
@@ -304,7 +310,29 @@ export default function WorkspaceView() {
 
       <div className="timeline-panel">
         <div className="timeline-header">
-          <h2>Timeline</h2>
+          <div className="timeline-header-left">
+            <h2>Timeline</h2>
+            {interpError && <p className="interp-error">{interpError}</p>}
+            {interpUrl && !interpLoading && (
+              <div className="interp-result">
+                <span>Result ready</span>
+                <button className="preview-play-btn" onClick={() => { interpPlayer.seek(0); previewPlayer.pause(); interpPlayer.play(interpUrl); }} title="Replay">↺</button>
+                <button className="preview-play-btn" onClick={() => { if (interpPlayer.isPlaying) { interpPlayer.pause(); } else { previewPlayer.pause(); interpPlayer.play(interpUrl); } }}>
+                  {interpPlayer.isPlaying ? "⏸" : "▶"}
+                </button>
+                <input
+                  className="audio-scrubber"
+                  type="range"
+                  min={0}
+                  max={interpPlayer.duration || 1}
+                  step={0.01}
+                  value={interpPlayer.currentTime}
+                  onChange={(e) => interpPlayer.seek(Number(e.target.value))}
+                />
+                <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+              </div>
+            )}
+          </div>
           <div className="timeline-header-right">
             <label className="duration-label">
               Duration: <strong>{interpDuration.toFixed(1)}s</strong>
@@ -327,32 +355,6 @@ export default function WorkspaceView() {
             </button>
           </div>
         </div>
-
-        {interpError && <p className="interp-error">{interpError}</p>}
-
-        {interpUrl && !interpLoading && (
-          <div className="interp-result">
-            <span>Result ready</span>
-            <div className="preview-controls">
-              <button
-                className="preview-play-btn"
-                onClick={() => interpPlayer.isPlaying ? interpPlayer.pause() : (previewPlayer.pause(), interpPlayer.play(interpUrl))}
-              >
-                {interpPlayer.isPlaying ? "⏸" : "▶"}
-              </button>
-              <input
-                className="audio-scrubber"
-                type="range"
-                min={0}
-                max={interpPlayer.duration || 1}
-                step={0.01}
-                value={interpPlayer.currentTime}
-                onChange={(e) => interpPlayer.seek(Number(e.target.value))}
-              />
-              <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
-            </div>
-          </div>
-        )}
 
         <div className="timeline-scroll" ref={scrollRef}>
           <div className="timeline-ruler" style={{ width: `${timelineWidth}px` }}>
@@ -396,11 +398,10 @@ export default function WorkspaceView() {
                 key={clip.id}
                 className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}`}
                 draggable
-                onDragStart={() => { setDraggingId(clip.id); dragStartWidthRef.current = timelineWidth; }}
+                onDragStart={() => { setDraggingId(clip.id); setDragStartWidth(timelineWidth); }}
                 onDragEnd={() => { setDraggingId(null); resetDragState(); }}
                 onDrag={(e) => {
                   if (e.clientX <= 0) return;
-                  const scroll = scrollRef.current;
                   const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
                   moveClip(clip.id, e.clientX - timelineLeft - CLIP_WIDTH_PX / 2);
                 }}
@@ -410,6 +411,11 @@ export default function WorkspaceView() {
                 style={{ left: `${clip.start}px`, width: `${clip.duration}px` }}
               >
                 {clip.name}
+                <button
+                  className="delete-clip-btn"
+                  onClick={(e) => { e.stopPropagation(); deleteClip(clip.id); }}
+                  title="Remove"
+                >✕</button>
               </div>
             ))}
           </div>
