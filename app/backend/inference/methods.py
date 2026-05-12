@@ -1,26 +1,24 @@
 import math
-import os
 import logging
 import time
 from functools import lru_cache
 from io import BytesIO
-from pathlib import Path
 from typing import Optional, Tuple
 
 import soundfile as sf
 import torch
-from inference.models import AudioElement, InterpolationElement
+from inference.models import InterpolationElement
 from inference.scapes_runtime import (
     CLAPWrapper,
     EncodecProcessor,
     FlowInference,
     load_flow_model,
     load_local_encoder,
-    run_interpolation_pipeline,
 )
+from inference.interpolation import interpolate_clips
+from inference.source_cache import get_or_encode
 
 from inference.constants import (
-    _get_audio_asset_path,
     ATOMS_FRAMES,
     ATOMS_HOP_FRAMES,
     CROSSFADE_FRAMES,
@@ -35,16 +33,6 @@ logger = logging.getLogger(__name__)
 
 def greet() -> str:
     return "Hello from SCAPES Interface!"
-
-
-def _resolve_audio_path(audio: AudioElement) -> Path:
-    audio_path = _get_audio_asset_path(audio)
-    if not audio_path.exists():
-        logger.warning(f"Audio asset not found: {audio_path}")
-        raise FileNotFoundError(
-            f"Missing audio asset for '{audio.value}'. Expected file at: {audio_path}"
-        )
-    return audio_path
 
 
 def _validate_model_artifacts() -> None:
@@ -244,7 +232,17 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     if audio_tensor.dim() == 3:
         audio_tensor = audio_tensor.squeeze(0)
     if audio_tensor.dim() != 2:
-        raise ValueError(f"Expected decoded audio to be 2D, got shape {tuple(audio_tensor.shape)}")
+        raise ValueError(
+            f"Expected decoded audio to be 2D, got shape {tuple(audio_tensor.shape)}"
+        )
+
+    peak = float(audio_tensor.detach().abs().max().item()) if audio_tensor.numel() else 0.0
+    if peak > 1.0:
+        logger.warning(
+            "audio peak %.3f exceeds 1.0; clamping to [-1, 1] before WAV write",
+            peak,
+        )
+    audio_tensor = audio_tensor.clamp(-1.0, 1.0)
 
     audio_np = audio_tensor.detach().cpu().float().numpy().T
     buffer = BytesIO()
@@ -254,27 +252,35 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
 
 def render_interpolation_audio(request: InterpolationElement) -> bytes:
     engine = get_inference_engine()
-    audio_path_1 = _resolve_audio_path(request.audio1)
-    audio_path_2 = _resolve_audio_path(request.audio2)
 
-    logger.info("Running interpolation pipeline...")
+    src_a = get_or_encode(engine, request.audio1)
+    src_b = get_or_encode(engine, request.audio2)
+
     start_time = time.time()
-    final_audio = run_interpolation_pipeline(
-        engine=engine,
-        audio_path_1=str(audio_path_1),
-        audio_path_2=str(audio_path_2),
-        timeline_size=request.timeline_size,
-        stay_time=request.stay_time,
+    result = interpolate_clips(
+        engine,
+        src_a,
+        src_b,
+        request.distance_sec,
+        adjacent_duration_sec=request.duration_sec,
+        a_anchor_sec=request.a_anchor_sec,
+        b_anchor_sec=request.b_anchor_sec,
+        stay_time_sec=request.stay_time_sec,
         stickyness=request.stickyness,
-        plot_stickyness_curve=False,
-        play=False,
-        save_path=None,
-        NFE=request.NFE,
-        context_static=request.context_static,
-        decode_method="ola_smooth",
-        cache=True,
+        nfe=request.nfe,
+        decode_method=request.decode_method,
+        context_mode_override=request.context_mode,
+        # cancel_event / progress not wired to the synchronous /interpolate
+        # endpoint yet; left as None until a streaming endpoint exists.
     )
-    duration = time.time() - start_time
-    logger.info(f"Interpolation pipeline finished in {duration:.2f} seconds.")
-    return _waveform_to_wav_bytes(final_audio, engine.sr)
+    elapsed = time.time() - start_time
+    logger.info(
+        "interpolation finished in %.2fs (timeline_size=%d, context_mode=%s, "
+        "duration_sec=%.3f)",
+        elapsed,
+        result.timeline_size,
+        result.context_mode,
+        result.duration_sec,
+    )
+    return _waveform_to_wav_bytes(result.audio, result.sample_rate)
 
