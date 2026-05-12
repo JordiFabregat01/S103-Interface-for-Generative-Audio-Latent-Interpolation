@@ -59,7 +59,7 @@ FLOW_MODEL_CONFIG = Path(os.getenv("SCAPES_FLOW_MODEL_CONFIG", get_model_dir() /
 LOCAL_ENCODER_CKPT = Path(os.getenv("SCAPES_LOCAL_ENCODER_CKPT", get_model_dir() / "checkpoints" / "best_local_encoder.pt"))
 LOCAL_ENCODER_CONFIG = Path(os.getenv("SCAPES_LOCAL_ENCODER_CONFIG", get_model_dir() / "checkpoints" / "local_encoder_config.json"))
 
-ATOMS_FRAMES = int(os.getenv("SCAPES_ATOMS_FRAMES", "21"))
+ATOMS_FRAMES = int(os.getenv("SCAPES_ATOMS_FRAMES", "48"))
 ATOMS_HOP_FRAMES = int(os.getenv("SCAPES_ATOMS_HOP_FRAMES", "15"))
 CROSSFADE_FRAMES = int(os.getenv("SCAPES_CROSSFADE_FRAMES", "3"))
 
