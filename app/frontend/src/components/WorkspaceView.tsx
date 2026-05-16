@@ -402,6 +402,13 @@ export default function WorkspaceView() {
                   onChange={(e) => interpPlayer.seek(Number(e.target.value))}
                 />
                 <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                <a
+                  href={interpUrl}
+                  download={`interpolation-${Date.now()}.wav`}
+                  className="download-btn"
+                >
+                  Download WAV
+                </a>
               </div>
             )}
           </div>
