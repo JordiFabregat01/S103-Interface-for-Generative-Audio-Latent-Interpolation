@@ -840,3 +840,29 @@ button {
   font-weight: 600;
   cursor: pointer;
 }
+
+.settings-btn {
+  background: #111827;
+  border: 1px solid #2a3441;
+  color: white;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.settings-panel {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  background: #111827;
+  border: 1px solid #2a3441;
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 100;
+  min-width: 220px;
+}
+
+.settings-panel h3 {
+  margin-top: 0;
+}
