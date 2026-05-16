@@ -169,45 +169,50 @@ export default function WorkspaceView() {
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
-
 const getEmoji = (name: string, filename = "") => {
   const lower = `${name} ${filename}`.toLowerCase();
 
-  // viento
-  if (lower.includes("wind")) return "💨";
-  if (lower.includes("breeze")) return "🍃";
+  // WIND
   if (lower.includes("articwind")) return "🌬️";
-  if (lower.includes("cornfieldwind")) return "🌾";
+  if (lower.includes("cornfieldwind")) return "🌾💨";
+  if (lower.includes("Intense")) return "🍃💨";
+  if (lower.includes("breeze")) return "🍃";
+  if (lower.includes("wind")) return "💨";
 
-  // lluvia / tormenta
-  if (lower.includes("rain")) return "🌧️";
-  if (lower.includes("storm")) return "⛈️";
+  // RAIN / STORM
+  if (lower.includes("icestorm")) return "🧊⛈️";
   if (lower.includes("thunder")) return "⚡";
-  if (lower.includes("icestorm")) return "🧊";
+  if (lower.includes("storm")) return "⛈️";
+  if (lower.includes("heavyrain")) return "🌧️💧";
+  if (lower.includes("rain")) return "☔";
 
-  // agua
-  if (lower.includes("waterfall")) return "💦";
-  if (lower.includes("river")) return "🏞️";
+  // WATER
+  if (lower.includes("waterfall")) return "💦⬇️";
+  if (lower.includes("waterrocks")) return "🫧🪨";
   if (lower.includes("underwater")) return "🐠";
-  if (lower.includes("water")) return "🌊";
-  if (lower.includes("waves")) return "〰️";
+  if (lower.includes("slowriver")) return "🏞️";
+  if (lower.includes("river")) return "🫧";
+  if (lower.includes("waves")) return "🌊〰️";
   if (lower.includes("sea")) return "🌊";
+  if (lower.includes("water")) return "💧";
 
-  // animales
-  if (lower.includes("bird")) return "🐦";
-  if (lower.includes("seagull")) return "🕊️";
-  if (lower.includes("bees")) return "🐝";
-  if (lower.includes("cicada")) return "🦗";
-  if (lower.includes("cricket")) return "🦗";
-  if (lower.includes("loon")) return "🦢";
-
-  // naturaleza
-  if (lower.includes("camp_fire")) return "🔥";
+  // FIRE
+  if (lower.includes("camp_fire")) return "🔥🌲";
   if (lower.includes("fire")) return "🔥";
 
-  // humanos
+  // BIRDS / ANIMALS
+  if (lower.includes("seagull")) return "🕊️";
+  if (lower.includes("loon")) return "🌙";
+  if (lower.includes("bird")) return "🐦";
+
+  // INSECTS
+  if (lower.includes("bees")) return "🐝";
+  if (lower.includes("cicada")) return "🪲";
+  if (lower.includes("cricket")) return "🦗";
+
+  // HUMAN
+  if (lower.includes("snowsteps")) return "🥾❄️";
   if (lower.includes("footsteps")) return "👣";
-  if (lower.includes("snowsteps")) return "🥾";
   if (lower.includes("keyboard")) return "⌨️";
 
   return "🎵";
