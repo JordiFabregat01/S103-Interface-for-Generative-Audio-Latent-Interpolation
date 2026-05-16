@@ -75,6 +75,7 @@ export default function WorkspaceView() {
   const [dragStartWidth, setDragStartWidth] = useState(0);
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
+  const [quality, setQuality] = useState(8);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
 
   useEffect(() => {
@@ -211,6 +212,7 @@ export default function WorkspaceView() {
         audio1: a1,
         audio2: a2,
         distance_sec: distanceSec,
+        nfe: quality,
         ...(distanceSec === 0 ? { duration_sec: Math.min(clipA.duration, clipB.duration) } : {}),
       });
       interpUrlRef.current = url;
@@ -413,6 +415,18 @@ export default function WorkspaceView() {
             )}
           </div>
           <div className="timeline-header-right">
+            <div className="quality-selector">
+              <label>Quality</label>
+
+              <select
+                value={quality}
+                onChange={(e) => setQuality(Number(e.target.value))}
+              >
+              <option value={4}>Fast</option>
+              <option value={8}>Balanced</option>
+              <option value={16}>High</option>
+              </select>
+            </div>
             <button
               className="interpolate-btn"
               onClick={runInterpolation}
