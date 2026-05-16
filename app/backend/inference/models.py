@@ -7,8 +7,31 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class AudioElement(str, Enum):
+    ARTIC_WIND = "ArticWind"
+    BEES = "Bees"
+    BIRD_AMBIENCE = "BirdAmbience"
+    BREAKING_WATER = "BreakingWater"
+    BREEZE = "Breeze"
     CAMPFIRE = "camp_fire"
+    CICADAS_CLEAN = "CicadasClean"
+    CORNFIELD_WIND = "CornfieldWind"
+    CRICKETS = "crickets"
+    FOOTSTEPS = "footsteps"
+    ICE_STORM = "IceStorm"
+    INTENSE_BREEZE = "IntenseBreeze"
     KEYBOARD = "keyboard"
+    LOON_CALL = "LoonCall"
+    RAIN = "rain"
+    RAIN_ON_LEAVES = "RainOnLeaves"
+    SEA_WAVES = "sea_waves"
+    SEAGULLS = "Seagulls"
+    SLOW_RIVER = "SlowRiver"
+    SNOW_STEPS = "SnowSteps"
+    THUNDER_STORM = "ThunderStorm"
+    UNDERWATER_FLOW = "UnderwaterFlow"
+    WATERFALL = "waterfall"
+    WATER_ON_ROCKS = "WaterOnRocks"
+    WIND_AND_RAIN = "Wind&Rain"
 
 
 ContextModeLiteral = Literal["auto", "static_first", "static_at_anchor", "dynamic"]
