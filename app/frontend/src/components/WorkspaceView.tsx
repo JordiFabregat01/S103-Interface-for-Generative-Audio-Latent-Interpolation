@@ -111,6 +111,7 @@ export default function WorkspaceView() {
           }
         });
       });
+      setInterpUrl("");
     };
     const onUp = () => setResizing(null);
     document.addEventListener("mousemove", onMove);
@@ -212,13 +213,15 @@ const getEmoji = (name: string, filename = "") => {
   return "🎵";
 };
 
-  const moveClip = (id: number, newStartSec: number) => {
-    setTimelineClips((prev) =>
-      prev.map((clip) =>
-        clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
-      )
-    );
-  };
+const moveClip = (id: number, newStartSec: number) => {
+  setTimelineClips((prev) =>
+    prev.map((clip) =>
+      clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
+    )
+  );
+
+  setInterpUrl("");
+};
 
   const runInterpolation = async () => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
@@ -284,9 +287,19 @@ const getEmoji = (name: string, filename = "") => {
   const canInterpolate = timelineClips.length >= 2;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
+const selectedPathPoints = sortedClips
+  .map((clip) =>
+    placedPoints.find((point) => point.filename === clip.filename)
+  )
+  .filter(Boolean);
+
+const selectedPath = selectedPathPoints
+  .map((point) => `${point!.px},${point!.py}`)
+  .join(" ");
 
   const deleteClip = (id: number) => {
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
+    setInterpUrl("");
     if (selectedClipId === id) setSelectedClipId(null);
   };
 
@@ -366,6 +379,36 @@ const getEmoji = (name: string, filename = "") => {
           <p className="library-hint">Click to preview · Drag to timeline</p>
           <div className="explorer-plot-wrap">
             <div className="explorer-plot">
+              {interpUrl && selectedPathPoints.length >= 2 && (
+                <svg
+                  className="interpolation-path-svg"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    <marker
+                      id="arrow-head"
+                      markerWidth="6"
+                      markerHeight="6"
+                      refX="5"
+                      refY="3"
+                      orient="auto"
+                    >
+                      <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
+                    </marker>
+                  </defs>
+
+                  <polyline
+                    className="interpolation-path ready"
+                    points={selectedPath}
+                    markerEnd="url(#arrow-head)"
+                    onClick={() => {
+                      interpPlayer.seek(0);
+                      interpPlayer.play(interpUrl);
+                    }}
+                  />
+                </svg>
+              )}
               {placedPoints.map((point) => (
                 <div
                   key={point.id}
@@ -480,6 +523,7 @@ const getEmoji = (name: string, filename = "") => {
                 duration: DEFAULT_CLIP_DURATION_SEC,
               };
               setTimelineClips((prev) => [...prev, newClip]);
+              setInterpUrl("");
             }}
           >
             {timelineClips.length === 0 && (
