@@ -792,3 +792,26 @@ button {
   border: 1px solid var(--border-1);
   height: fit-content;
 }
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 8px 14px;
+  margin-left: 10px;
+
+  background: #00d8ff;
+  color: #111;
+
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+
+  transition: 0.2s;
+}
+
+.download-btn:hover {
+  background: #38e8ff;
+  transform: scale(1.03);
+}
