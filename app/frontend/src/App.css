@@ -815,3 +815,28 @@ button {
   background: #38e8ff;
   transform: scale(1.03);
 }
+
+.quality-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quality-selector label {
+  color: #9ca3af;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quality-selector select {
+  background: #111827;
+  color: white;
+
+  border: 1px solid #374151;
+  border-radius: 8px;
+
+  padding: 8px 12px;
+
+  font-weight: 600;
+  cursor: pointer;
+}
