@@ -169,18 +169,48 @@ export default function WorkspaceView() {
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
 
-  const getEmoji = (name: string) => {
-    const lower = name.toLowerCase();
-    if (lower.includes("rain")) return "🌧️";
-    if (lower.includes("bird")) return "🐦";
-    if (lower.includes("water")) return "🌊";
-    if (lower.includes("wind")) return "💨";
-    if (lower.includes("fire")) return "🔥";
-    if (lower.includes("thunder")) return "⚡";
-    if (lower.includes("keyboard")) return "⌨️";
-    if (lower.includes("foot")) return "👣";
-    return "🎵";
-  };
+const getEmoji = (name: string, filename = "") => {
+  const lower = `${name} ${filename}`.toLowerCase();
+
+  // viento
+  if (lower.includes("wind")) return "💨";
+  if (lower.includes("breeze")) return "🍃";
+  if (lower.includes("articwind")) return "🌬️";
+  if (lower.includes("cornfieldwind")) return "🌾";
+
+  // lluvia / tormenta
+  if (lower.includes("rain")) return "🌧️";
+  if (lower.includes("storm")) return "⛈️";
+  if (lower.includes("thunder")) return "⚡";
+  if (lower.includes("icestorm")) return "🧊";
+
+  // agua
+  if (lower.includes("waterfall")) return "💦";
+  if (lower.includes("river")) return "🏞️";
+  if (lower.includes("underwater")) return "🐠";
+  if (lower.includes("water")) return "🌊";
+  if (lower.includes("waves")) return "〰️";
+  if (lower.includes("sea")) return "🌊";
+
+  // animales
+  if (lower.includes("bird")) return "🐦";
+  if (lower.includes("seagull")) return "🕊️";
+  if (lower.includes("bees")) return "🐝";
+  if (lower.includes("cicada")) return "🦗";
+  if (lower.includes("cricket")) return "🦗";
+  if (lower.includes("loon")) return "🦢";
+
+  // naturaleza
+  if (lower.includes("camp_fire")) return "🔥";
+  if (lower.includes("fire")) return "🔥";
+
+  // humanos
+  if (lower.includes("footsteps")) return "👣";
+  if (lower.includes("snowsteps")) return "🥾";
+  if (lower.includes("keyboard")) return "⌨️";
+
+  return "🎵";
+};
 
   const moveClip = (id: number, newStartSec: number) => {
     setTimelineClips((prev) =>
@@ -503,7 +533,13 @@ export default function WorkspaceView() {
                     />
                   )}
 
-                  <span className="clip-label">{clip.name}</span>
+                <div className="clip-label">
+                  <span className="clip-emoji">
+                    {getEmoji(clip.name, clip.filename)}
+                  </span>
+
+                  <span>{clip.name}</span>
+                </div>
                   {isSelected && (
                     <span className="clip-duration-badge">{clip.duration.toFixed(2)}s</span>
                   )}

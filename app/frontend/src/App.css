@@ -792,3 +792,12 @@ button {
   border: 1px solid var(--border-1);
   height: fit-content;
 }
+.clip-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clip-emoji {
+  font-size: 15px;
+}
