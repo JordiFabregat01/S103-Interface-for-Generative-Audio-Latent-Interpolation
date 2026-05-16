@@ -11,6 +11,7 @@ from inference.methods import (
 )
 from inference.models import InterpolationElement
 from inference.embeddings import get_sound_layout, resolve_audio_file
+from inference.clap_search import search_by_text
 from jobs import JobState, JobStore
 import logging
 import traceback
@@ -70,6 +71,40 @@ def list_sounds(refresh: bool = False):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Failed to compute sound layout") from exc
     return [point.__dict__ for point in layout]
+
+
+@app.get("/sounds/search")
+def search_sounds(q: str, k: int = 8):
+    """Rank library sounds by CLAP cosine similarity to a free-form text query.
+
+    Declared **before** ``/sounds/{filename}`` so FastAPI doesn't treat the
+    literal segment ``search`` as a filename.
+    """
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="query 'q' must be non-empty")
+    if not 1 <= k <= 50:
+        raise HTTPException(status_code=400, detail="k must be in [1, 50]")
+    try:
+        hits = search_by_text(q, k=k)
+    except FileNotFoundError as exc:
+        logger.warning(f"search cache missing: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"text search failed for query={q!r}: {exc}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="text search failed") from exc
+
+    return [
+        {
+            "id": hit.point.id,
+            "name": hit.point.name,
+            "filename": hit.point.filename,
+            "x": hit.point.x,
+            "y": hit.point.y,
+            "score": hit.score,
+        }
+        for hit in hits
+    ]
 
 
 @app.get("/sounds/{filename}")
