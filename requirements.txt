@@ -8,3 +8,4 @@ soundfile
 transformers
 tqdm
 msclap
+scikit-learn
