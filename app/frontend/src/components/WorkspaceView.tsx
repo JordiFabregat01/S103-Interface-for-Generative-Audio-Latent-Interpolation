@@ -57,6 +57,7 @@ function filenameToAudioElement(filename: string) {
   return filename.replace(/\.[^.]+$/, "");
 }
 
+
 export default function WorkspaceView() {
   const [sounds, setSounds] = useState<SoundPoint[]>([]);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
@@ -78,6 +79,21 @@ export default function WorkspaceView() {
   const [quality, setQuality] = useState(8);
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
+
+  useEffect(() => {
+    if (interpolatedGaps.size === 0) return;
+    const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
+    const validKeys = new Set(sorted.flatMap((clip, i) => {
+      const next = sorted[i + 1];
+      if (!next) return [];
+      const gap = next.start - (clip.start + clip.duration);
+      return gap > 0.01 ? [`${clip.id}-${next.id}`] : [];
+    }));
+    setInterpolatedGaps((prev) => {
+      const cleaned = new Set([...prev].filter((k) => validKeys.has(k)));
+      return cleaned.size === prev.size ? prev : cleaned;
+    });
+  }, [timelineClips]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -165,7 +181,6 @@ export default function WorkspaceView() {
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
-  const [gapLoadingKey, setGapLoadingKey] = useState<string | null>(null);
   const [interpolatedGaps, setInterpolatedGaps] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -232,15 +247,10 @@ const moveClip = (id: number, newStartSec: number) => {
   setInterpUrl("");
 };
 
-  const runInterpolation = async (clipA?: TimelineClip, clipB?: TimelineClip, gapKey?: string) => {
-    if (!clipA || !clipB) {
-      const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
-      [clipA, clipB] = sorted;
-    }
+  const runInterpolation = async () => {
+    const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
+    const [clipA, clipB] = sorted;
     if (!clipA || !clipB) return;
-
-    const a1 = filenameToAudioElement(clipA.filename);
-    const a2 = filenameToAudioElement(clipB.filename);
 
     setInterpLoading(true);
     setInterpError(null);
@@ -252,20 +262,18 @@ const moveClip = (id: number, newStartSec: number) => {
     try {
       const distanceSec = clipB.start - (clipA.start + clipA.duration);
       const url = await interpolate({
-        audio1: a1,
-        audio2: a2,
+        audio1: filenameToAudioElement(clipA.filename),
+        audio2: filenameToAudioElement(clipB.filename),
         distance_sec: distanceSec,
         nfe: quality,
         ...(distanceSec === 0 ? { duration_sec: Math.min(clipA.duration, clipB.duration) } : {}),
       });
       interpUrlRef.current = url;
       setInterpUrl(url);
-      if (gapKey) setInterpolatedGaps((prev) => new Set(prev).add(gapKey));
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Interpolation failed");
     } finally {
       setInterpLoading(false);
-      setGapLoadingKey(null);
     }
   };
 
@@ -601,25 +609,23 @@ const selectedPath = selectedPathPoints
             ))}
 
             {gapRegions.map((region) => {
-              const isLoading = gapLoadingKey === region.key;
               const isInterpolated = interpolatedGaps.has(region.key);
               return (
                 <div
                   key={region.key}
-                  className={`timeline-gap-region${isInterpolated ? " interpolated" : ""}${isLoading ? " loading" : ""}`}
+                  className={`timeline-gap-region${isInterpolated ? " interpolated" : ""}`}
                   style={{
                     left: `${region.start * PX_PER_SEC}px`,
                     width: `${(region.end - region.start) * PX_PER_SEC}px`,
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (interpLoading || isInterpolated) return;
-                    setGapLoadingKey(region.key);
-                    runInterpolation(region.clipA, region.clipB, region.key);
+                    if (isInterpolated) return;
+                    setInterpolatedGaps((prev) => new Set(prev).add(region.key));
                   }}
-                  title={isInterpolated ? undefined : "Click to interpolate"}
+                  title={isInterpolated ? undefined : "Click to add interpolation"}
                 >
-                  <span className="timeline-gap-label">{isLoading ? "…" : "+"}</span>
+                  {!isInterpolated && <span className="timeline-gap-label">+</span>}
                   {isInterpolated && (
                     <button
                       className="delete-clip-btn"

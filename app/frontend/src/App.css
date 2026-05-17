@@ -518,11 +518,6 @@
   border-color: rgba(74, 143, 245, 0.45);
 }
 
-.timeline-gap-region.loading {
-  border-style: dashed;
-  cursor: default;
-}
-
 .timeline-gap-region.interpolated {
   background: repeating-linear-gradient(
     -45deg,
@@ -544,10 +539,6 @@
   pointer-events: none;
 }
 
-.timeline-gap-region.interpolated .timeline-gap-label {
-  display: none;
-}
-
 .timeline-clip.selected {
   border-color: var(--accent);
   background: rgba(74, 143, 245, 0.22);
@@ -558,6 +549,9 @@
 
 /* ─── Clip label (clipped to clip body) ──────────────────────── */
 .clip-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
@@ -929,10 +923,6 @@ button {
 
 .settings-panel h3 {
   margin-top: 0;
-.clip-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .clip-emoji {
