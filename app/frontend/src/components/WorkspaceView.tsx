@@ -25,6 +25,7 @@ const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
 const SNAP_THRESHOLD_SEC = 0.15;
+const LOADING_VERBS = ["working", "cooking", "interpolating", "generating"] as const;
 
 function snapEdge(value: number, targets: number[]): { snapped: number; dist: number } {
   let best = value;
@@ -162,6 +163,18 @@ export default function WorkspaceView() {
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
+  const [loadingVerbIdx, setLoadingVerbIdx] = useState(0);
+
+  useEffect(() => {
+    if (!interpLoading) {
+      setLoadingVerbIdx(0);
+      return;
+    }
+    const id = setInterval(() => {
+      setLoadingVerbIdx((i) => (i + 1) % LOADING_VERBS.length);
+    }, 1400 * 3);
+    return () => clearInterval(id);
+  }, [interpLoading]);
 
   useEffect(() => {
     getSounds()
@@ -411,7 +424,14 @@ export default function WorkspaceView() {
               onClick={runInterpolation}
               disabled={!canInterpolate || interpLoading}
             >
-              {interpLoading ? "Generating…" : "Interpolate"}
+              {interpLoading ? (
+                <>
+                  {LOADING_VERBS[loadingVerbIdx]}
+                  <span className="loading-dots" aria-hidden="true" />
+                </>
+              ) : (
+                "Interpolate"
+              )}
             </button>
           </div>
         </div>
