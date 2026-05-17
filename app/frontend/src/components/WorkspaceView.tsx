@@ -556,7 +556,7 @@ const selectedPath = selectedPathPoints
           </div>
           <div className="timeline-header-right">
             <button
-              className="interpolate-btn"
+              className={`interpolate-btn${interpLoading ? " loading" : ""}`}
               onClick={runInterpolation}
               disabled={!canInterpolate || interpLoading}
             >
