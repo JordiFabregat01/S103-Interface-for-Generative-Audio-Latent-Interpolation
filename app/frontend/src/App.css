@@ -804,3 +804,77 @@ button {
   border: 1px solid var(--border-1);
   height: fit-content;
 }
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 8px 14px;
+  margin-left: 10px;
+
+  background: #00d8ff;
+  color: #111;
+
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+
+  transition: 0.2s;
+}
+
+.download-btn:hover {
+  background: #38e8ff;
+  transform: scale(1.03);
+}
+
+.quality-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quality-selector label {
+  color: #9ca3af;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quality-selector select {
+  background: #111827;
+  color: white;
+
+  border: 1px solid #374151;
+  border-radius: 8px;
+
+  padding: 8px 12px;
+
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-btn {
+  background: #111827;
+  border: 1px solid #2a3441;
+  color: white;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.settings-panel {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  background: #111827;
+  border: 1px solid #2a3441;
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 100;
+  min-width: 220px;
+}
+
+.settings-panel h3 {
+  margin-top: 0;
+}
