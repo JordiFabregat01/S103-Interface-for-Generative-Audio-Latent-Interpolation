@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, interpolate, type SoundPoint } from "../api";
+import { getSounds, getSoundUrl, render, type Segment, type SoundPoint } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 // start and duration are stored in seconds; pixels = value * PX_PER_SEC
@@ -260,10 +260,53 @@ const moveClip = (id: number, newStartSec: number) => {
   setInterpUrl("");
 };
 
+  // Turn the placed clips + gaps into a /render timeline: a leading silence for
+  // the start offset, each clip, and between consecutive clips either an
+  // interpolation (touching/overlapping, or a gap the user toggled on) or
+  // silence (an untouched gap).
+  const buildTimelineSegments = (sorted: TimelineClip[]): Segment[] => {
+    const segments: Segment[] = [];
+    const first = sorted[0];
+    if (first && first.start > 0.01) {
+      segments.push({ type: "silence", duration: first.start });
+    }
+    sorted.forEach((clip, index) => {
+      segments.push({ type: "clip", filename: clip.filename, duration: clip.duration });
+      const next = sorted[index + 1];
+      if (!next) return;
+      const distanceSec = next.start - (clip.start + clip.duration);
+      if (distanceSec > 0.01) {
+        const key = `${clip.id}-${next.id}`;
+        if (interpolatedGaps.has(key)) {
+          segments.push({
+            type: "interpolation",
+            audio1: filenameToAudioElement(clip.filename),
+            audio2: filenameToAudioElement(next.filename),
+            distance_sec: distanceSec,
+            nfe: quality,
+          });
+        } else {
+          segments.push({ type: "silence", duration: distanceSec });
+        }
+      } else {
+        // Touching (distance ~ 0) or overlapping (distance < 0): crossfade.
+        const adjacent = Math.abs(distanceSec) <= 0.01;
+        segments.push({
+          type: "interpolation",
+          audio1: filenameToAudioElement(clip.filename),
+          audio2: filenameToAudioElement(next.filename),
+          distance_sec: adjacent ? 0 : distanceSec,
+          nfe: quality,
+          ...(adjacent ? { duration_sec: Math.min(clip.duration, next.duration) } : {}),
+        });
+      }
+    });
+    return segments;
+  };
+
   const runInterpolation = async () => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
-    const [clipA, clipB] = sorted;
-    if (!clipA || !clipB) return;
+    if (sorted.length < 2) return;
 
     setInterpLoading(true);
     setInterpError(null);
@@ -273,18 +316,11 @@ const moveClip = (id: number, newStartSec: number) => {
     }
     setInterpUrl(null);
     try {
-      const distanceSec = clipB.start - (clipA.start + clipA.duration);
-      const url = await interpolate({
-        audio1: filenameToAudioElement(clipA.filename),
-        audio2: filenameToAudioElement(clipB.filename),
-        distance_sec: distanceSec,
-        nfe: quality,
-        ...(distanceSec === 0 ? { duration_sec: Math.min(clipA.duration, clipB.duration) } : {}),
-      });
+      const url = await render(buildTimelineSegments(sorted));
       interpUrlRef.current = url;
       setInterpUrl(url);
     } catch (err) {
-      setInterpError(err instanceof Error ? err.message : "Interpolation failed");
+      setInterpError(err instanceof Error ? err.message : "Render failed");
     } finally {
       setInterpLoading(false);
     }

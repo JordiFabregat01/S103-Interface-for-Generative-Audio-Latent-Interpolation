@@ -2,8 +2,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 import uvicorn
-from inference.methods import greet, get_inference_engine, render_interpolation_audio
-from inference.models import InterpolationElement
+from inference.methods import (
+    greet,
+    get_inference_engine,
+    render_interpolation_audio,
+    render_timeline_audio,
+)
+from inference.models import InterpolationElement, InterpolationSegment, RenderRequest
 from inference.embeddings import get_sound_layout, resolve_audio_file
 import logging
 import traceback
@@ -63,10 +68,43 @@ def get_sound_audio(filename: str):
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
-@app.post("/interpolate")
-def interpolate(payload: InterpolationElement):
+@app.post("/render")
+def render(payload: RenderRequest):
     logger.info(
-        "Received interpolation request: %s <-> %s "
+        "Received render request: %d segments [%s]",
+        len(payload.segments),
+        ", ".join(seg.type for seg in payload.segments),
+    )
+    try:
+        audio_bytes = render_timeline_audio(payload)
+        logger.info(f"Successfully rendered {len(audio_bytes)} bytes of audio.")
+    except FileNotFoundError as exc:
+        logger.warning(f"File not found during render: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        logger.warning(f"Invalid render request: {exc}")
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Unexpected error during render: {exc}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, detail="Internal server error during audio generation"
+        ) from exc
+
+    return Response(content=audio_bytes, media_type="audio/wav")
+
+
+@app.post("/interpolate", deprecated=True)
+def interpolate(payload: InterpolationElement):
+    """Deprecated: thin shim that forwards a single interpolation segment to /render.
+
+    The legacy endpoint only ever emitted the interpolated audio (no flanking
+    clip audio), so the shim wraps the request as one InterpolationSegment to
+    keep the byte output identical for not-yet-migrated frontends. Remove once
+    the frontend talks to /render directly.
+    """
+    logger.info(
+        "Received (deprecated) interpolation request: %s <-> %s "
         "(distance_sec=%.3f, duration_sec=%s, context_mode=%s, nfe=%d)",
         payload.audio1.value,
         payload.audio2.value,
@@ -75,18 +113,20 @@ def interpolate(payload: InterpolationElement):
         payload.context_mode,
         payload.nfe,
     )
-    try:
-        audio_bytes = render_interpolation_audio(payload)
-        logger.info(f"Successfully generated {len(audio_bytes)} bytes of audio.")
-    except FileNotFoundError as exc:
-        logger.warning(f"File not found during interpolation: {exc}")
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.error(f"Unexpected error during interpolation: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Internal server error during audio generation") from exc
-
-    return Response(content=audio_bytes, media_type="audio/wav")
+    segment = InterpolationSegment(
+        audio1=payload.audio1,
+        audio2=payload.audio2,
+        distance_sec=payload.distance_sec,
+        duration_sec=payload.duration_sec,
+        a_anchor_sec=payload.a_anchor_sec,
+        b_anchor_sec=payload.b_anchor_sec,
+        stay_time_sec=payload.stay_time_sec,
+        stickyness=payload.stickyness,
+        nfe=payload.nfe,
+        context_mode=payload.context_mode,
+        decode_method=payload.decode_method,
+    )
+    return render(RenderRequest(segments=[segment]))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="localhost", port=8000)

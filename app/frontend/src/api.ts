@@ -26,6 +26,47 @@ export type InterpolationRequest = {
   context_mode?: "auto" | "static_first" | "static_at_anchor" | "dynamic";
 };
 
+export type ClipSegment = {
+  type: "clip";
+  filename: string;
+  duration: number;
+};
+
+export type SilenceSegment = {
+  type: "silence";
+  duration: number;
+};
+
+export type InterpolationSegment = {
+  type: "interpolation";
+  audio1: string;
+  audio2: string;
+  distance_sec?: number;
+  duration_sec?: number;
+  nfe?: number;
+  context_mode?: "auto" | "static_first" | "static_at_anchor" | "dynamic";
+};
+
+export type Segment = ClipSegment | SilenceSegment | InterpolationSegment;
+
+/**
+ * Render a full timeline composition (N clips, N-1 gaps) to a single WAV.
+ * Returns an object URL for the generated WAV. Caller must revoke it when done.
+ */
+export const render = async (segments: Segment[]): Promise<string> => {
+  const res = await fetch(`${API_BASE}/render`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ segments }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+};
+
 /** Returns an object URL for the generated WAV. Caller must revoke it when done. */
 export const interpolate = async (req: InterpolationRequest): Promise<string> => {
   const body: Record<string, unknown> = {
