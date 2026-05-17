@@ -75,6 +75,8 @@ export default function WorkspaceView() {
   const [dragStartWidth, setDragStartWidth] = useState(0);
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
+  const [quality, setQuality] = useState(8);
+  const [showSettings, setShowSettings] = useState(false);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
 
   useEffect(() => {
@@ -211,6 +213,7 @@ export default function WorkspaceView() {
         audio1: a1,
         audio2: a2,
         distance_sec: distanceSec,
+        nfe: quality,
         ...(distanceSec === 0 ? { duration_sec: Math.min(clipA.duration, clipB.duration) } : {}),
       });
       interpUrlRef.current = url;
@@ -267,7 +270,33 @@ export default function WorkspaceView() {
     <div className="workspace-page">
       <div className="app-header">
         <h1>Generative Audio Latent Interpolation</h1>
+
+        <button
+          className="settings-btn"
+          onClick={() => setShowSettings(!showSettings)}
+        >
+          ⚙️
+        </button>
       </div>
+
+      {showSettings && (
+      <div className="settings-panel">
+      <h3>Settings</h3>
+
+      <div className="quality-selector">
+      <label>Quality</label>
+
+      <select
+        value={quality}
+        onChange={(e) => setQuality(Number(e.target.value))}
+      >
+        <option value={4}>Fast</option>
+        <option value={8}>Balanced</option>
+        <option value={16}>High</option>
+      </select>
+    </div>
+  </div>
+)}
 
       <div className="workspace-layout">
         <div className="library-panel">
@@ -405,6 +434,13 @@ export default function WorkspaceView() {
                   onChange={(e) => interpPlayer.seek(Number(e.target.value))}
                 />
                 <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                <a
+                  href={interpUrl}
+                  download={`interpolation-${Date.now()}.wav`}
+                  className="download-btn"
+                >
+                  Download WAV
+                </a>
               </div>
             )}
           </div>
