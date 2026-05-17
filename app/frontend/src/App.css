@@ -497,6 +497,57 @@
   pointer-events: none;
 }
 
+.timeline-gap-region {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  z-index: 0;
+  background: transparent;
+  border: 1px dashed rgba(74, 143, 245, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.timeline-gap-region:hover {
+  background: rgba(74, 143, 245, 0.06);
+  border-color: rgba(74, 143, 245, 0.45);
+}
+
+.timeline-gap-region.loading {
+  border-style: dashed;
+  cursor: default;
+}
+
+.timeline-gap-region.interpolated {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(245, 158, 11, 0.22) 0px,
+    rgba(245, 158, 11, 0.22) 4px,
+    transparent 4px,
+    transparent 10px
+  );
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  cursor: default;
+}
+
+.timeline-gap-label {
+  font-size: 16px;
+  font-weight: 300;
+  color: rgba(74, 143, 245, 0.4);
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+}
+
+.timeline-gap-region.interpolated .timeline-gap-label {
+  display: none;
+}
+
 .timeline-clip.selected {
   border-color: var(--accent);
   background: rgba(74, 143, 245, 0.22);
@@ -602,7 +653,8 @@
 }
 
 .timeline-clip:hover .delete-clip-btn,
-.timeline-clip.selected .delete-clip-btn {
+.timeline-clip.selected .delete-clip-btn,
+.timeline-gap-region.interpolated .delete-clip-btn {
   opacity: 1;
 }
 

@@ -164,6 +164,8 @@ export default function WorkspaceView() {
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
+  const [gapLoadingKey, setGapLoadingKey] = useState<string | null>(null);
+  const [interpolatedGaps, setInterpolatedGaps] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     getSounds()
@@ -192,9 +194,11 @@ export default function WorkspaceView() {
     );
   };
 
-  const runInterpolation = async () => {
-    const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
-    const [clipA, clipB] = sorted;
+  const runInterpolation = async (clipA?: TimelineClip, clipB?: TimelineClip, gapKey?: string) => {
+    if (!clipA || !clipB) {
+      const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
+      [clipA, clipB] = sorted;
+    }
     if (!clipA || !clipB) return;
 
     const a1 = filenameToAudioElement(clipA.filename);
@@ -218,23 +222,30 @@ export default function WorkspaceView() {
       });
       interpUrlRef.current = url;
       setInterpUrl(url);
+      if (gapKey) setInterpolatedGaps((prev) => new Set(prev).add(gapKey));
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Interpolation failed");
     } finally {
       setInterpLoading(false);
+      setGapLoadingKey(null);
     }
   };
 
   const sortedClips = [...timelineClips].sort((a, b) => a.start - b.start);
 
   const overlapRegions: { start: number; end: number }[] = [];
+  const gapRegions: { start: number; end: number; clipA: TimelineClip; clipB: TimelineClip; key: string }[] = [];
   sortedClips.forEach((clip, index, arr) => {
     const next = arr[index + 1];
-    if (next && clip.start + clip.duration > next.start) {
+    if (!next) return;
+    const clipEnd = clip.start + clip.duration;
+    if (clipEnd > next.start) {
       overlapRegions.push({
         start: next.start,
-        end: Math.min(clip.start + clip.duration, next.start + next.duration),
+        end: Math.min(clipEnd, next.start + next.duration),
       });
+    } else if (next.start - clipEnd > 0.01) {
+      gapRegions.push({ start: clipEnd, end: next.start, clipA: clip, clipB: next, key: `${clip.id}-${next.id}` });
     }
   });
 
@@ -450,7 +461,7 @@ export default function WorkspaceView() {
               onClick={runInterpolation}
               disabled={!canInterpolate || interpLoading}
             >
-              {interpLoading ? "Generating…" : "Interpolate"}
+              {interpLoading ? "Cooking..." : "Generate"}
             </button>
           </div>
         </div>
@@ -509,6 +520,40 @@ export default function WorkspaceView() {
                 }}
               />
             ))}
+
+            {gapRegions.map((region) => {
+              const isLoading = gapLoadingKey === region.key;
+              const isInterpolated = interpolatedGaps.has(region.key);
+              return (
+                <div
+                  key={region.key}
+                  className={`timeline-gap-region${isInterpolated ? " interpolated" : ""}${isLoading ? " loading" : ""}`}
+                  style={{
+                    left: `${region.start * PX_PER_SEC}px`,
+                    width: `${(region.end - region.start) * PX_PER_SEC}px`,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (interpLoading || isInterpolated) return;
+                    setGapLoadingKey(region.key);
+                    runInterpolation(region.clipA, region.clipB, region.key);
+                  }}
+                  title={isInterpolated ? undefined : "Click to interpolate"}
+                >
+                  <span className="timeline-gap-label">{isLoading ? "…" : "+"}</span>
+                  {isInterpolated && (
+                    <button
+                      className="delete-clip-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInterpolatedGaps((prev) => { const s = new Set(prev); s.delete(region.key); return s; });
+                      }}
+                      title="Remove interpolation"
+                    >✕</button>
+                  )}
+                </div>
+              );
+            })}
 
             {timelineClips.map((clip) => {
               const isSelected = selectedClipId === clip.id;
