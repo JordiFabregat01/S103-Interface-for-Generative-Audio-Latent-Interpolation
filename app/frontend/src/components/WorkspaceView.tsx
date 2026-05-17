@@ -58,6 +58,7 @@ function filenameToAudioElement(filename: string) {
   return filename.replace(/\.[^.]+$/, "");
 }
 
+
 export default function WorkspaceView() {
   const [sounds, setSounds] = useState<SoundPoint[]>([]);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
@@ -76,7 +77,24 @@ export default function WorkspaceView() {
   const [dragStartWidth, setDragStartWidth] = useState(0);
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
+  const [quality, setQuality] = useState(8);
+  const [showSettings, setShowSettings] = useState(false);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
+
+  useEffect(() => {
+    if (interpolatedGaps.size === 0) return;
+    const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
+    const validKeys = new Set(sorted.flatMap((clip, i) => {
+      const next = sorted[i + 1];
+      if (!next) return [];
+      const gap = next.start - (clip.start + clip.duration);
+      return gap > 0.01 ? [`${clip.id}-${next.id}`] : [];
+    }));
+    setInterpolatedGaps((prev) => {
+      const cleaned = new Set([...prev].filter((k) => validKeys.has(k)));
+      return cleaned.size === prev.size ? prev : cleaned;
+    });
+  }, [timelineClips]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -112,6 +130,7 @@ export default function WorkspaceView() {
           }
         });
       });
+      setInterpUrl("");
     };
     const onUp = () => setResizing(null);
     document.addEventListener("mousemove", onMove);
@@ -163,6 +182,7 @@ export default function WorkspaceView() {
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
+  const [interpolatedGaps, setInterpolatedGaps] = useState<Set<string>>(new Set());
   const [loadingVerbIdx, setLoadingVerbIdx] = useState(0);
 
   useEffect(() => {
@@ -181,35 +201,69 @@ export default function WorkspaceView() {
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
+const getEmoji = (name: string, filename = "") => {
+  const lower = `${name} ${filename}`.toLowerCase();
 
-  const getEmoji = (name: string) => {
-    const lower = name.toLowerCase();
-    if (lower.includes("rain")) return "🌧️";
-    if (lower.includes("bird")) return "🐦";
-    if (lower.includes("water")) return "🌊";
-    if (lower.includes("wind")) return "💨";
-    if (lower.includes("fire")) return "🔥";
-    if (lower.includes("thunder")) return "⚡";
-    if (lower.includes("keyboard")) return "⌨️";
-    if (lower.includes("foot")) return "👣";
-    return "🎵";
-  };
+  // WIND
+  if (lower.includes("articwind")) return "🌬️";
+  if (lower.includes("cornfieldwind")) return "🌾💨";
+  if (lower.includes("Intense")) return "🍃💨";
+  if (lower.includes("breeze")) return "🍃";
+  if (lower.includes("wind")) return "💨";
 
-  const moveClip = (id: number, newStartSec: number) => {
-    setTimelineClips((prev) =>
-      prev.map((clip) =>
-        clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
-      )
-    );
-  };
+  // RAIN / STORM
+  if (lower.includes("icestorm")) return "🧊⛈️";
+  if (lower.includes("thunder")) return "⚡";
+  if (lower.includes("storm")) return "⛈️";
+  if (lower.includes("heavyrain")) return "🌧️💧";
+  if (lower.includes("rain")) return "☔";
+
+  // WATER
+  if (lower.includes("waterfall")) return "💦⬇️";
+  if (lower.includes("waterrocks")) return "🫧🪨";
+  if (lower.includes("underwater")) return "🐠";
+  if (lower.includes("slowriver")) return "🏞️";
+  if (lower.includes("river")) return "🫧";
+  if (lower.includes("waves")) return "🌊〰️";
+  if (lower.includes("sea")) return "🌊";
+  if (lower.includes("water")) return "💧";
+
+  // FIRE
+  if (lower.includes("camp_fire")) return "🔥🌲";
+  if (lower.includes("fire")) return "🔥";
+
+  // BIRDS / ANIMALS
+  if (lower.includes("seagull")) return "🕊️";
+  if (lower.includes("loon")) return "🌙";
+  if (lower.includes("bird")) return "🐦";
+
+  // INSECTS
+  if (lower.includes("bees")) return "🐝";
+  if (lower.includes("cicada")) return "🪲";
+  if (lower.includes("cricket")) return "🦗";
+
+  // HUMAN
+  if (lower.includes("snowsteps")) return "🥾❄️";
+  if (lower.includes("footsteps")) return "👣";
+  if (lower.includes("keyboard")) return "⌨️";
+
+  return "🎵";
+};
+
+const moveClip = (id: number, newStartSec: number) => {
+  setTimelineClips((prev) =>
+    prev.map((clip) =>
+      clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
+    )
+  );
+
+  setInterpUrl("");
+};
 
   const runInterpolation = async () => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
     const [clipA, clipB] = sorted;
     if (!clipA || !clipB) return;
-
-    const a1 = filenameToAudioElement(clipA.filename);
-    const a2 = filenameToAudioElement(clipB.filename);
 
     setInterpLoading(true);
     setInterpError(null);
@@ -221,9 +275,10 @@ export default function WorkspaceView() {
     try {
       const distanceSec = clipB.start - (clipA.start + clipA.duration);
       const url = await interpolate({
-        audio1: a1,
-        audio2: a2,
+        audio1: filenameToAudioElement(clipA.filename),
+        audio2: filenameToAudioElement(clipB.filename),
         distance_sec: distanceSec,
+        nfe: quality,
         ...(distanceSec === 0 ? { duration_sec: Math.min(clipA.duration, clipB.duration) } : {}),
       });
       interpUrlRef.current = url;
@@ -237,11 +292,19 @@ export default function WorkspaceView() {
 
   const sortedClips = [...timelineClips].sort((a, b) => a.start - b.start);
 
-  const overlaps: number[] = [];
+  const overlapRegions: { start: number; end: number }[] = [];
+  const gapRegions: { start: number; end: number; clipA: TimelineClip; clipB: TimelineClip; key: string }[] = [];
   sortedClips.forEach((clip, index, arr) => {
     const next = arr[index + 1];
-    if (next && clip.start < next.start + next.duration && clip.start + clip.duration > next.start) {
-      overlaps.push(clip.id, next.id);
+    if (!next) return;
+    const clipEnd = clip.start + clip.duration;
+    if (clipEnd > next.start) {
+      overlapRegions.push({
+        start: next.start,
+        end: Math.min(clipEnd, next.start + next.duration),
+      });
+    } else if (next.start - clipEnd > 0.01) {
+      gapRegions.push({ start: clipEnd, end: next.start, clipA: clip, clipB: next, key: `${clip.id}-${next.id}` });
     }
   });
 
@@ -267,9 +330,19 @@ export default function WorkspaceView() {
   const canInterpolate = timelineClips.length >= 2;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
+const selectedPathPoints = sortedClips
+  .map((clip) =>
+    placedPoints.find((point) => point.filename === clip.filename)
+  )
+  .filter(Boolean);
+
+const selectedPath = selectedPathPoints
+  .map((point) => `${point!.px},${point!.py}`)
+  .join(" ");
 
   const deleteClip = (id: number) => {
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
+    setInterpUrl("");
     if (selectedClipId === id) setSelectedClipId(null);
   };
 
@@ -277,7 +350,33 @@ export default function WorkspaceView() {
     <div className="workspace-page">
       <div className="app-header">
         <h1>Generative Audio Latent Interpolation</h1>
+
+        <button
+          className="settings-btn"
+          onClick={() => setShowSettings(!showSettings)}
+        >
+          ⚙️
+        </button>
       </div>
+
+      {showSettings && (
+      <div className="settings-panel">
+      <h3>Settings</h3>
+
+      <div className="quality-selector">
+      <label>Quality</label>
+
+      <select
+        value={quality}
+        onChange={(e) => setQuality(Number(e.target.value))}
+      >
+        <option value={4}>Fast</option>
+        <option value={8}>Balanced</option>
+        <option value={16}>High</option>
+      </select>
+    </div>
+  </div>
+)}
 
       <div className="workspace-layout">
         <div className="library-panel">
@@ -349,6 +448,36 @@ export default function WorkspaceView() {
           <p className="library-hint">Click to preview · Drag to timeline</p>
           <div className="explorer-plot-wrap">
             <div className="explorer-plot">
+              {interpUrl && selectedPathPoints.length >= 2 && (
+                <svg
+                  className="interpolation-path-svg"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    <marker
+                      id="arrow-head"
+                      markerWidth="6"
+                      markerHeight="6"
+                      refX="5"
+                      refY="3"
+                      orient="auto"
+                    >
+                      <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
+                    </marker>
+                  </defs>
+
+                  <polyline
+                    className="interpolation-path ready"
+                    points={selectedPath}
+                    markerEnd="url(#arrow-head)"
+                    onClick={() => {
+                      interpPlayer.seek(0);
+                      interpPlayer.play(interpUrl);
+                    }}
+                  />
+                </svg>
+              )}
               {placedPoints.map((point) => (
                 <div
                   key={point.id}
@@ -415,6 +544,13 @@ export default function WorkspaceView() {
                   onChange={(e) => interpPlayer.seek(Number(e.target.value))}
                 />
                 <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                <a
+                  href={interpUrl}
+                  download={`interpolation-${Date.now()}.wav`}
+                  className="download-btn"
+                >
+                  Download WAV
+                </a>
               </div>
             )}
           </div>
@@ -470,6 +606,7 @@ export default function WorkspaceView() {
                 duration: DEFAULT_CLIP_DURATION_SEC,
               };
               setTimelineClips((prev) => [...prev, newClip]);
+              setInterpUrl("");
             }}
           >
             {timelineClips.length === 0 && (
@@ -480,6 +617,49 @@ export default function WorkspaceView() {
               <div key={x} className="snap-joint" style={{ left: `${x}px` }} />
             ))}
 
+            {overlapRegions.map((region, i) => (
+              <div
+                key={i}
+                className="timeline-overlap-region"
+                style={{
+                  left: `${region.start * PX_PER_SEC}px`,
+                  width: `${(region.end - region.start) * PX_PER_SEC}px`,
+                }}
+              />
+            ))}
+
+            {gapRegions.map((region) => {
+              const isInterpolated = interpolatedGaps.has(region.key);
+              return (
+                <div
+                  key={region.key}
+                  className={`timeline-gap-region${isInterpolated ? " interpolated" : ""}`}
+                  style={{
+                    left: `${region.start * PX_PER_SEC}px`,
+                    width: `${(region.end - region.start) * PX_PER_SEC}px`,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isInterpolated) return;
+                    setInterpolatedGaps((prev) => new Set(prev).add(region.key));
+                  }}
+                  title={isInterpolated ? undefined : "Click to add interpolation"}
+                >
+                  {!isInterpolated && <span className="timeline-gap-label">+</span>}
+                  {isInterpolated && (
+                    <button
+                      className="delete-clip-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInterpolatedGaps((prev) => { const s = new Set(prev); s.delete(region.key); return s; });
+                      }}
+                      title="Remove interpolation"
+                    >✕</button>
+                  )}
+                </div>
+              );
+            })}
+
             {timelineClips.map((clip) => {
               const isSelected = selectedClipId === clip.id;
               const leftPx = clip.start * PX_PER_SEC;
@@ -487,7 +667,7 @@ export default function WorkspaceView() {
               return (
                 <div
                   key={clip.id}
-                  className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}${isSelected ? " selected" : ""}`}
+                  className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${isSelected ? " selected" : ""}`}
                   draggable={!resizing}
                   onDragStart={(e) => {
                     if (resizing) { e.preventDefault(); return; }
@@ -523,7 +703,13 @@ export default function WorkspaceView() {
                     />
                   )}
 
-                  <span className="clip-label">{clip.name}</span>
+                <div className="clip-label">
+                  <span className="clip-emoji">
+                    {getEmoji(clip.name, clip.filename)}
+                  </span>
+
+                  <span>{clip.name}</span>
+                </div>
                   {isSelected && (
                     <span className="clip-duration-badge">{clip.duration.toFixed(2)}s</span>
                   )}
