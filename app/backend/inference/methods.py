@@ -3,11 +3,13 @@ import logging
 import time
 from functools import lru_cache
 from io import BytesIO
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
+import librosa
 import soundfile as sf
 import torch
-from inference.models import InterpolationElement
+from inference.models import InterpolationElement, RenderRequest
+from inference.embeddings import resolve_audio_file
 from inference.scapes_runtime import (
     CLAPWrapper,
     EncodecProcessor,
@@ -250,7 +252,8 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     return buffer.getvalue()
 
 
-def render_interpolation_audio(request: InterpolationElement) -> bytes:
+def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.Tensor, int]:
+    """Run the interpolation pipeline and return ``(audio[C, T], sample_rate)``."""
     engine = get_inference_engine()
 
     src_a = get_or_encode(engine, request.audio1)
@@ -270,8 +273,8 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         nfe=request.nfe,
         decode_method=request.decode_method,
         context_mode_override=request.context_mode,
-        # cancel_event / progress not wired to the synchronous /interpolate
-        # endpoint yet; left as None until a streaming endpoint exists.
+        # cancel_event / progress not wired to the synchronous endpoints yet;
+        # left as None until a streaming endpoint exists.
     )
     elapsed = time.time() - start_time
     logger.info(
@@ -282,5 +285,108 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         result.context_mode,
         result.duration_sec,
     )
-    return _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+    audio = result.audio
+    if audio.dim() == 3:
+        audio = audio.squeeze(0)
+    if audio.dim() != 2:
+        raise ValueError(
+            f"Expected interpolation audio to be 2D [C, T], got shape {tuple(audio.shape)}"
+        )
+    return audio, result.sample_rate
+
+
+def render_interpolation_audio(request: InterpolationElement) -> bytes:
+    audio, sample_rate = _render_interpolation_tensor(request)
+    return _waveform_to_wav_bytes(audio, sample_rate)
+
+
+def _load_clip_tensor(
+    filename: str, duration_sec: float, *, sample_rate: int
+) -> torch.Tensor:
+    """Load a clip WAV as ``[C, T]`` at ``sample_rate``, trimmed/padded to ``duration_sec``."""
+    path = resolve_audio_file(filename)
+    data, file_sr = sf.read(str(path), always_2d=True, dtype="float32")  # [T, C]
+    audio = torch.from_numpy(data.T).contiguous()  # [C, T]
+
+    if file_sr != sample_rate:
+        resampled = librosa.resample(
+            audio.numpy(), orig_sr=file_sr, target_sr=sample_rate, axis=-1
+        )
+        audio = torch.from_numpy(resampled).contiguous()
+
+    target_len = int(round(duration_sec * sample_rate))
+    cur_len = audio.shape[-1]
+    if cur_len >= target_len:
+        return audio[..., :target_len]
+
+    logger.info(
+        "clip %s shorter than requested %.3fs (%d < %d samples); zero-padding",
+        filename,
+        duration_sec,
+        cur_len,
+        target_len,
+    )
+    pad = torch.zeros(audio.shape[0], target_len - cur_len, dtype=audio.dtype)
+    return torch.cat([audio, pad], dim=-1)
+
+
+def _make_silence(duration_sec: float, *, sample_rate: int) -> torch.Tensor:
+    """Mono silence ``[1, T]``; channel count is reconciled during stitching."""
+    n = int(round(duration_sec * sample_rate))
+    return torch.zeros(1, max(0, n), dtype=torch.float32)
+
+
+def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
+    """Coerce ``[C, T]`` to exactly ``channels`` rows (upmix mono, downmix to mono)."""
+    c = audio.shape[0]
+    if c == channels:
+        return audio
+    if c == 1:
+        return audio.expand(channels, -1).contiguous()
+    if channels == 1:
+        return audio.mean(dim=0, keepdim=True)
+    # Uncommon (e.g. 6ch -> 2ch): downmix to mono, then fan out.
+    return audio.mean(dim=0, keepdim=True).expand(channels, -1).contiguous()
+
+
+def render_timeline_audio(request: RenderRequest) -> bytes:
+    """Render a full timeline (clips + silence + interpolation) to a WAV byte string."""
+    engine = get_inference_engine()
+    sample_rate = engine.sr
+
+    segments: List[torch.Tensor] = []
+    for index, segment in enumerate(request.segments):
+        if segment.type == "clip":
+            tensor = _load_clip_tensor(
+                segment.filename, segment.duration, sample_rate=sample_rate
+            )
+        elif segment.type == "silence":
+            tensor = _make_silence(segment.duration, sample_rate=sample_rate)
+        elif segment.type == "interpolation":
+            tensor, seg_sr = _render_interpolation_tensor(segment.to_element())
+            if seg_sr != sample_rate:
+                raise ValueError(
+                    f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
+                )
+        else:  # pragma: no cover - guarded by the discriminated union
+            raise ValueError(f"unknown segment type at index {index}")
+
+        if tensor.shape[-1] > 0:
+            segments.append(tensor)
+
+    if not segments:
+        raise ValueError("timeline produced no audio")
+
+    channels = max(seg.shape[0] for seg in segments)
+    stitched = torch.cat(
+        [_match_channels(seg, channels) for seg in segments], dim=-1
+    )
+    logger.info(
+        "rendered timeline: %d segments, %d channels, %.3fs",
+        len(request.segments),
+        channels,
+        stitched.shape[-1] / sample_rate,
+    )
+    return _waveform_to_wav_bytes(stitched, sample_rate)
 
