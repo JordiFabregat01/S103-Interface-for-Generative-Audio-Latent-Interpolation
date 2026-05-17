@@ -3,8 +3,8 @@ from pathlib import Path
 
 from inference.models import AudioElement
 
-ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-MODEL_DIR = Path(__file__).resolve().parent / "models" / "Full_150e"
+ASSETS_DIR = Path(os.getenv("SCAPES_ASSETS_DIR", Path(__file__).resolve().parent / "assets"))
+MODEL_DIR = Path(os.getenv("SCAPES_MODEL_DIR", Path(__file__).resolve().parent / "models" / "Full_150e"))
 
 CACHE_DIR = ASSETS_DIR / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
