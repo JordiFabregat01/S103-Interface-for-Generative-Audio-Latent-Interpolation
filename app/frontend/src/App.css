@@ -480,9 +480,21 @@
   opacity: 0.45;
 }
 
-.timeline-clip.overlap {
-  border-color: rgba(245, 158, 11, 0.5);
-  background: rgba(245, 158, 11, 0.08);
+.timeline-overlap-region {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  z-index: 3;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(245, 158, 11, 0.28) 0px,
+    rgba(245, 158, 11, 0.28) 4px,
+    transparent 4px,
+    transparent 10px
+  );
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .timeline-clip.selected {

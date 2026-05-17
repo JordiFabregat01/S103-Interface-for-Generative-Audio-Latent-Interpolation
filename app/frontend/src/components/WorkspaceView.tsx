@@ -224,11 +224,14 @@ export default function WorkspaceView() {
 
   const sortedClips = [...timelineClips].sort((a, b) => a.start - b.start);
 
-  const overlaps: number[] = [];
+  const overlapRegions: { start: number; end: number }[] = [];
   sortedClips.forEach((clip, index, arr) => {
     const next = arr[index + 1];
-    if (next && clip.start < next.start + next.duration && clip.start + clip.duration > next.start) {
-      overlaps.push(clip.id, next.id);
+    if (next && clip.start + clip.duration > next.start) {
+      overlapRegions.push({
+        start: next.start,
+        end: Math.min(clip.start + clip.duration, next.start + next.duration),
+      });
     }
   });
 
@@ -460,6 +463,17 @@ export default function WorkspaceView() {
               <div key={x} className="snap-joint" style={{ left: `${x}px` }} />
             ))}
 
+            {overlapRegions.map((region, i) => (
+              <div
+                key={i}
+                className="timeline-overlap-region"
+                style={{
+                  left: `${region.start * PX_PER_SEC}px`,
+                  width: `${(region.end - region.start) * PX_PER_SEC}px`,
+                }}
+              />
+            ))}
+
             {timelineClips.map((clip) => {
               const isSelected = selectedClipId === clip.id;
               const leftPx = clip.start * PX_PER_SEC;
@@ -467,7 +481,7 @@ export default function WorkspaceView() {
               return (
                 <div
                   key={clip.id}
-                  className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${overlaps.includes(clip.id) ? " overlap" : ""}${isSelected ? " selected" : ""}`}
+                  className={`timeline-clip${draggingId === clip.id ? " dragging" : ""}${isSelected ? " selected" : ""}`}
                   draggable={!resizing}
                   onDragStart={(e) => {
                     if (resizing) { e.preventDefault(); return; }
