@@ -113,6 +113,7 @@ export default function WorkspaceView() {
           }
         });
       });
+      setInterpUrl("");
     };
     const onUp = () => setResizing(null);
     document.addEventListener("mousemove", onMove);
@@ -172,27 +173,64 @@ export default function WorkspaceView() {
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
+const getEmoji = (name: string, filename = "") => {
+  const lower = `${name} ${filename}`.toLowerCase();
 
-  const getEmoji = (name: string) => {
-    const lower = name.toLowerCase();
-    if (lower.includes("rain")) return "🌧️";
-    if (lower.includes("bird")) return "🐦";
-    if (lower.includes("water")) return "🌊";
-    if (lower.includes("wind")) return "💨";
-    if (lower.includes("fire")) return "🔥";
-    if (lower.includes("thunder")) return "⚡";
-    if (lower.includes("keyboard")) return "⌨️";
-    if (lower.includes("foot")) return "👣";
-    return "🎵";
-  };
+  // WIND
+  if (lower.includes("articwind")) return "🌬️";
+  if (lower.includes("cornfieldwind")) return "🌾💨";
+  if (lower.includes("Intense")) return "🍃💨";
+  if (lower.includes("breeze")) return "🍃";
+  if (lower.includes("wind")) return "💨";
 
-  const moveClip = (id: number, newStartSec: number) => {
-    setTimelineClips((prev) =>
-      prev.map((clip) =>
-        clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
-      )
-    );
-  };
+  // RAIN / STORM
+  if (lower.includes("icestorm")) return "🧊⛈️";
+  if (lower.includes("thunder")) return "⚡";
+  if (lower.includes("storm")) return "⛈️";
+  if (lower.includes("heavyrain")) return "🌧️💧";
+  if (lower.includes("rain")) return "☔";
+
+  // WATER
+  if (lower.includes("waterfall")) return "💦⬇️";
+  if (lower.includes("waterrocks")) return "🫧🪨";
+  if (lower.includes("underwater")) return "🐠";
+  if (lower.includes("slowriver")) return "🏞️";
+  if (lower.includes("river")) return "🫧";
+  if (lower.includes("waves")) return "🌊〰️";
+  if (lower.includes("sea")) return "🌊";
+  if (lower.includes("water")) return "💧";
+
+  // FIRE
+  if (lower.includes("camp_fire")) return "🔥🌲";
+  if (lower.includes("fire")) return "🔥";
+
+  // BIRDS / ANIMALS
+  if (lower.includes("seagull")) return "🕊️";
+  if (lower.includes("loon")) return "🌙";
+  if (lower.includes("bird")) return "🐦";
+
+  // INSECTS
+  if (lower.includes("bees")) return "🐝";
+  if (lower.includes("cicada")) return "🪲";
+  if (lower.includes("cricket")) return "🦗";
+
+  // HUMAN
+  if (lower.includes("snowsteps")) return "🥾❄️";
+  if (lower.includes("footsteps")) return "👣";
+  if (lower.includes("keyboard")) return "⌨️";
+
+  return "🎵";
+};
+
+const moveClip = (id: number, newStartSec: number) => {
+  setTimelineClips((prev) =>
+    prev.map((clip) =>
+      clip.id === id ? { ...clip, start: Math.max(0, newStartSec) } : clip
+    )
+  );
+
+  setInterpUrl("");
+};
 
   const runInterpolation = async (clipA?: TimelineClip, clipB?: TimelineClip, gapKey?: string) => {
     if (!clipA || !clipB) {
@@ -271,9 +309,19 @@ export default function WorkspaceView() {
   const canInterpolate = timelineClips.length >= 2;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
+const selectedPathPoints = sortedClips
+  .map((clip) =>
+    placedPoints.find((point) => point.filename === clip.filename)
+  )
+  .filter(Boolean);
+
+const selectedPath = selectedPathPoints
+  .map((point) => `${point!.px},${point!.py}`)
+  .join(" ");
 
   const deleteClip = (id: number) => {
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
+    setInterpUrl("");
     if (selectedClipId === id) setSelectedClipId(null);
   };
 
@@ -379,6 +427,36 @@ export default function WorkspaceView() {
           <p className="library-hint">Click to preview · Drag to timeline</p>
           <div className="explorer-plot-wrap">
             <div className="explorer-plot">
+              {interpUrl && selectedPathPoints.length >= 2 && (
+                <svg
+                  className="interpolation-path-svg"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    <marker
+                      id="arrow-head"
+                      markerWidth="6"
+                      markerHeight="6"
+                      refX="5"
+                      refY="3"
+                      orient="auto"
+                    >
+                      <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
+                    </marker>
+                  </defs>
+
+                  <polyline
+                    className="interpolation-path ready"
+                    points={selectedPath}
+                    markerEnd="url(#arrow-head)"
+                    onClick={() => {
+                      interpPlayer.seek(0);
+                      interpPlayer.play(interpUrl);
+                    }}
+                  />
+                </svg>
+              )}
               {placedPoints.map((point) => (
                 <div
                   key={point.id}
@@ -500,6 +578,7 @@ export default function WorkspaceView() {
                 duration: DEFAULT_CLIP_DURATION_SEC,
               };
               setTimelineClips((prev) => [...prev, newClip]);
+              setInterpUrl("");
             }}
           >
             {timelineClips.length === 0 && (
@@ -598,7 +677,13 @@ export default function WorkspaceView() {
                     />
                   )}
 
-                  <span className="clip-label">{clip.name}</span>
+                <div className="clip-label">
+                  <span className="clip-emoji">
+                    {getEmoji(clip.name, clip.filename)}
+                  </span>
+
+                  <span>{clip.name}</span>
+                </div>
                   {isSelected && (
                     <span className="clip-duration-badge">{clip.duration.toFixed(2)}s</span>
                   )}
