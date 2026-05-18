@@ -385,7 +385,7 @@ const selectedPath = selectedPathPoints
   return (
     <div className="workspace-page">
       <div className="app-header">
-        <h1>Generative Audio Latent Interpolation</h1>
+        <h1><span style={{ color: "#1E90FF" }}>GALI</span> Generative Audio Latent Interpolation</h1>
 
         <button
           className="settings-btn"
@@ -393,6 +393,17 @@ const selectedPath = selectedPathPoints
         >
           ⚙️
         </button>
+
+        <img
+          className="app-logo"
+          src="/GALI.jpeg"
+          alt="GALI"
+          title="Meow!"
+          onClick={() => {
+            const meow = new Audio("/meow.wav");
+            meow.play();
+          }}
+        />
       </div>
 
       {showSettings && (
