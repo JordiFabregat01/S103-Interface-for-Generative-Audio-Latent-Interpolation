@@ -36,7 +36,7 @@ modules/
 # =========================
 # Data / audio (your project specific)
 # =========================
-*.wav
+**/assets/*.wav
 *.mp3
 *.flac
 datasets/
