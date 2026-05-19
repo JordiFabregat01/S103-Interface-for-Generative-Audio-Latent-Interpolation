@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, render, type Segment, type SoundPoint } from "../api";
+import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, type Segment, type SoundPoint, type SoundHit } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 // start and duration are stored in seconds; pixels = value * PX_PER_SEC
@@ -177,6 +177,32 @@ export default function WorkspaceView() {
       stopAutoScroll();
     }
   };
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SoundHit[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [similarTo, setSimilarTo] = useState<SoundPoint | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sound: SoundPoint } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismiss = () => setContextMenu(null);
+    document.addEventListener("mousedown", dismiss);
+    return () => document.removeEventListener("mousedown", dismiss);
+  }, [contextMenu]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) { setSearchResults(null); setSimilarTo(null); return; }
+    const timer = setTimeout(() => {
+      setSearchLoading(true);
+      searchSounds(q)
+        .then(setSearchResults)
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const [interpLoading, setInterpLoading] = useState(false);
   const [interpError, setInterpError] = useState<string | null>(null);
@@ -385,7 +411,7 @@ const selectedPath = selectedPathPoints
   return (
     <div className="workspace-page">
       <div className="app-header">
-        <h1>Generative Audio Latent Interpolation</h1>
+        <h1><span style={{ color: "#1E90FF" }}>GALI</span> Generative Audio Latent Interpolation</h1>
 
         <button
           className="settings-btn"
@@ -393,25 +419,39 @@ const selectedPath = selectedPathPoints
         >
           ⚙️
         </button>
+
+        <img
+          className="app-logo"
+          src="/GALI.jpeg"
+          alt="GALI"
+          title="Meow!"
+          onClick={() => {
+            const meow = new Audio("/meow.wav");
+            meow.play();
+          }}
+        />
       </div>
 
       {showSettings && (
-      <div className="settings-panel">
-      <h3>Settings</h3>
+      <>
+        <div className="settings-backdrop" onClick={() => setShowSettings(false)} />
+        <div className="settings-panel">
+        <h3>Settings</h3>
 
-      <div className="quality-selector">
-      <label>Quality</label>
+        <div className="quality-selector">
+        <label>Quality</label>
 
-      <select
-        value={quality}
-        onChange={(e) => setQuality(Number(e.target.value))}
-      >
-        <option value={4}>Fast</option>
-        <option value={8}>Balanced</option>
-        <option value={16}>High</option>
-      </select>
+        <select
+          value={quality}
+          onChange={(e) => { setQuality(Number(e.target.value)); setShowSettings(false); }}
+        >
+          <option value={4}>Fast</option>
+          <option value={8}>Balanced</option>
+          <option value={16}>High</option>
+        </select>
+      </div>
     </div>
-  </div>
+      </>
 )}
 
       <div className="workspace-layout">
@@ -419,30 +459,71 @@ const selectedPath = selectedPathPoints
           <h2>Sound Library</h2>
           <p className="library-hint">Click to preview · Drag to timeline</p>
 
+          <div className="library-search">
+            <input
+              className="library-search-input"
+              type="text"
+              placeholder="Search sounds…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button className="library-search-clear" onClick={() => setSearchQuery("")}>✕</button>
+            )}
+          </div>
+
+          {similarTo && (
+            <div className="similar-banner">
+              <span>Similar to: <strong>{similarTo.name}</strong></span>
+              <button className="library-search-clear" onClick={() => { setSearchResults(null); setSimilarTo(null); }}>✕</button>
+            </div>
+          )}
+
           <div className="sound-grid-scroll">
             <div className="sound-grid">
-              {sounds.map((sound) => (
-                <div
-                  key={sound.id}
-                  className={`sound-card${selectedSound?.id === sound.id ? " selected" : ""}`}
-                  draggable
-                  onClick={() => {
-                    if (selectedSound?.id === sound.id) {
-                      previewPlayer.pause();
-                      setSelectedSound(null);
-                    } else {
-                      interpPlayer.pause();
-                      setSelectedSound(sound);
-                      previewPlayer.play(getSoundUrl(sound.filename));
-                    }
-                  }}
-                  onDragStart={() => { dragSoundRef.current = sound; }}
-                  onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
-                >
-                  <div className="sound-image">{getEmoji(sound.name)}</div>
-                  <p>{sound.name}</p>
-                </div>
-              ))}
+              {searchLoading && <p className="library-hint">Searching…</p>}
+              {!searchLoading && searchResults !== null && !similarTo && searchResults.length === 0 && (
+                <p className="library-hint">No results for "{searchQuery}"</p>
+              )}
+              {(() => {
+                const renderCard = (sound: SoundPoint, extra = "") => (
+                  <div
+                    key={sound.id}
+                    className={`sound-card${selectedSound?.id === sound.id ? " selected" : ""}${extra ? ` ${extra}` : ""}`}
+                    draggable
+                    onClick={() => {
+                      if (selectedSound?.id === sound.id) {
+                        previewPlayer.pause();
+                        setSelectedSound(null);
+                      } else {
+                        interpPlayer.pause();
+                        setSelectedSound(sound);
+                        previewPlayer.play(getSoundUrl(sound.filename));
+                      }
+                    }}
+                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, sound }); }}
+                    onDragStart={() => { dragSoundRef.current = sound; }}
+                    onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
+                  >
+                    <div className="sound-image">{getEmoji(sound.name)}</div>
+                    <p>{sound.name}</p>
+                  </div>
+                );
+
+                if (similarTo && searchResults !== null) {
+                  const similarIds = new Set(searchResults.map((s) => s.id));
+                  const others = sounds.filter((s) => !similarIds.has(s.id) && s.id !== similarTo.id);
+                  return (
+                    <>
+                      {searchResults.map((s) => renderCard(s, "similar"))}
+                      {renderCard(similarTo, "similar-origin")}
+                      {others.map((s) => renderCard(s))}
+                    </>
+                  );
+                }
+
+                return (searchResults ?? sounds).map((s) => renderCard(s));
+              })()}
             </div>
           </div>
 
@@ -475,9 +556,55 @@ const selectedPath = selectedPathPoints
                 />
                 <span className="audio-time">{fmt(previewPlayer.currentTime)} / {fmt(previewPlayer.duration)}</span>
               </div>
+              <button
+                className="find-similar-btn"
+                onClick={() => {
+                  if (similarTo?.id === selectedSound.id) {
+                    setSearchResults(null);
+                    setSimilarTo(null);
+                    return;
+                  }
+                  setSearchQuery("");
+                  setSimilarTo(selectedSound);
+                  setSearchLoading(true);
+                  findSimilarSounds(selectedSound.filename)
+                    .then(setSearchResults)
+                    .catch(() => setSearchResults([]))
+                    .finally(() => setSearchLoading(false));
+                }}
+              >
+                {similarTo?.id === selectedSound.id ? "Clear similar" : "Find similar"}
+              </button>
             </div>
           )}
         </div>
+
+        {contextMenu && (
+          <div
+            className="sound-context-menu"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {similarTo?.id === contextMenu.sound.id ? (
+              <button onClick={() => { setSearchResults(null); setSimilarTo(null); setContextMenu(null); }}>
+                Clear similar
+              </button>
+            ) : (
+              <button onClick={() => {
+                setSearchQuery("");
+                setSimilarTo(contextMenu.sound);
+                setSearchLoading(true);
+                setContextMenu(null);
+                findSimilarSounds(contextMenu.sound.filename)
+                  .then(setSearchResults)
+                  .catch(() => setSearchResults([]))
+                  .finally(() => setSearchLoading(false));
+              }}>
+                Find similar
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="drop-panel">
           <h2>Latent Space Exploration</h2>
@@ -592,7 +719,7 @@ const selectedPath = selectedPathPoints
           </div>
           <div className="timeline-header-right">
             <button
-              className="interpolate-btn"
+              className={`interpolate-btn${interpLoading ? " loading" : ""}`}
               onClick={runInterpolation}
               disabled={!canInterpolate || interpLoading}
             >

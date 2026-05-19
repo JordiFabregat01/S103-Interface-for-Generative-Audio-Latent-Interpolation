@@ -9,14 +9,19 @@ MODEL_DIR = Path(os.getenv("SCAPES_MODEL_DIR", Path(__file__).resolve().parent /
 CACHE_DIR = ASSETS_DIR / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
-"""
-INEFFICIENT. We should build both dicts with a unified macro or cast the enum
-"""
+
 def _get_audio_asset_path(audio: AudioElement) -> Path:
     return ASSETS_DIR / f"{audio.value}.wav"
 
+
 def _get_audio_cache_key(audio: AudioElement) -> str:
     return audio.value
+
+
+# Convenience maps derived from the helpers above. Kept for backwards
+# compatibility with notebooks and scripts that import these directly.
+AUDIO_ASSET_MAP = {audio: _get_audio_asset_path(audio) for audio in AudioElement}
+AUDIO_CACHE_MAP = {audio: _get_audio_cache_key(audio) for audio in AudioElement}
 
 FLOW_MODEL_CKPT = Path(os.getenv("SCAPES_FLOW_MODEL_CKPT", MODEL_DIR / "checkpoints" / "best_flow_model.pt"))
 FLOW_MODEL_CONFIG = Path(os.getenv("SCAPES_FLOW_MODEL_CONFIG", MODEL_DIR / "checkpoints" / "flow_model_config.json"))
