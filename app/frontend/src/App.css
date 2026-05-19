@@ -992,6 +992,12 @@ button {
   border-color: var(--border-2);
 }
 
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
 .settings-panel {
   position: absolute;
   top: 70px;

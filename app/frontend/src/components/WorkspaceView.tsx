@@ -407,22 +407,25 @@ const selectedPath = selectedPathPoints
       </div>
 
       {showSettings && (
-      <div className="settings-panel">
-      <h3>Settings</h3>
+      <>
+        <div className="settings-backdrop" onClick={() => setShowSettings(false)} />
+        <div className="settings-panel">
+        <h3>Settings</h3>
 
-      <div className="quality-selector">
-      <label>Quality</label>
+        <div className="quality-selector">
+        <label>Quality</label>
 
-      <select
-        value={quality}
-        onChange={(e) => setQuality(Number(e.target.value))}
-      >
-        <option value={4}>Fast</option>
-        <option value={8}>Balanced</option>
-        <option value={16}>High</option>
-      </select>
+        <select
+          value={quality}
+          onChange={(e) => { setQuality(Number(e.target.value)); setShowSettings(false); }}
+        >
+          <option value={4}>Fast</option>
+          <option value={8}>Balanced</option>
+          <option value={16}>High</option>
+        </select>
+      </div>
     </div>
-  </div>
+      </>
 )}
 
       <div className="workspace-layout">
