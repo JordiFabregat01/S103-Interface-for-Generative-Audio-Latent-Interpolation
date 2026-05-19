@@ -19,6 +19,20 @@ export const getSounds = (): Promise<SoundPoint[]> =>
 export const getSoundUrl = (filename: string): string =>
   `${API_BASE}/sounds/${encodeURIComponent(filename)}`;
 
+export type SoundHit = SoundPoint & { score: number };
+
+export const searchSounds = (q: string, k = 8): Promise<SoundHit[]> =>
+  fetch(`${API_BASE}/sounds/search?q=${encodeURIComponent(q)}&k=${k}`).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+
+export const findSimilarSounds = (filename: string, k = 8): Promise<SoundHit[]> =>
+  fetch(`${API_BASE}/sounds/${encodeURIComponent(filename)}/similar?k=${k}`).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+
 export type InterpolationRequest = {
   audio1: string;
   audio2: string;
