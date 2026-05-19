@@ -10,7 +10,7 @@ image = (
     .apt_install("ffmpeg", "libsndfile1")
     .pip_install(
         "torch", "torchaudio",
-        extra_index_url="https://download.pytorch.org/whl/cpu",
+        extra_index_url="https://download.pytorch.org/whl/cu121",
     )
     .pip_install(
         "torchdiffeq", "librosa", "numpy", "matplotlib", "soundfile",
@@ -31,12 +31,13 @@ app = modal.App("s103-backend", image=image)
 
 @app.function(
     volumes={VOLUME_PATH: volume},
-    # Uncomment for GPU inference:
-    # gpu="t4",
+    gpu="t4",
     timeout=300,
     scaledown_window=60,
     memory=4096,
-    secrets=[modal.Secret.from_name("s103-secrets")],
+    secrets=[modal.Secret.from_dict({
+        "FRONTEND_ORIGINS": "https://s103-interface-for-generative-audio-blush.vercel.app",
+    })],
 )
 @modal.asgi_app()
 def fastapi_app():
@@ -47,6 +48,7 @@ def fastapi_app():
 
     os.environ["SCAPES_ASSETS_DIR"] = f"{VOLUME_PATH}/assets"
     os.environ["SCAPES_MODEL_DIR"] = f"{VOLUME_PATH}/models/Full_150e"
+    os.environ["FRONTEND_ORIGINS"] = "https://s103-interface-for-generative-audio-blush.vercel.app"
 
     from main import app as fastapi_app
     return fastapi_app
