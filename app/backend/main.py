@@ -11,7 +11,7 @@ from inference.methods import (
 )
 from inference.models import InterpolationElement
 from inference.embeddings import get_sound_layout, resolve_audio_file
-from inference.clap_search import search_by_text
+from inference.clap_search import search_by_text, search_similar
 from jobs import JobState, JobStore
 import logging
 import traceback
@@ -93,6 +93,43 @@ def search_sounds(q: str, k: int = 8):
         logger.error(f"text search failed for query={q!r}: {exc}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="text search failed") from exc
+
+    return [
+        {
+            "id": hit.point.id,
+            "name": hit.point.name,
+            "filename": hit.point.filename,
+            "x": hit.point.x,
+            "y": hit.point.y,
+            "score": hit.score,
+        }
+        for hit in hits
+    ]
+
+
+@app.get("/sounds/{filename}/similar")
+def similar_sounds(filename: str, k: int = 8):
+    """Rank library sounds by CLAP cosine similarity to ``filename``.
+
+    The query sound itself is excluded from the response. Declared **before**
+    ``/sounds/{filename}`` so the more-specific ``/similar`` suffix wins the
+    path match.
+    """
+    if not filename.strip():
+        raise HTTPException(status_code=400, detail="filename must be non-empty")
+    if not 1 <= k <= 50:
+        raise HTTPException(status_code=400, detail="k must be in [1, 50]")
+    try:
+        hits = search_similar(filename, k=k)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        logger.warning(f"search cache missing: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"similar search failed for filename={filename!r}: {exc}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="similar search failed") from exc
 
     return [
         {

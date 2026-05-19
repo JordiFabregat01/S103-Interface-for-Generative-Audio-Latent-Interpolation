@@ -75,27 +75,39 @@ def _embed_text(query: str) -> np.ndarray:
     return emb[0].detach().cpu().float().numpy()
 
 
-def search_by_text(query: str, k: int = 8) -> List[SearchHit]:
-    """Rank library sounds by cosine similarity to ``query`` in CLAP space.
+def _rank_by_vector(
+    query_vec: np.ndarray,
+    k: int,
+    *,
+    exclude_idx: int | None = None,
+) -> List[SearchHit]:
+    """Cosine-rank the cached library against ``query_vec``.
 
-    Returns at most ``k`` hits, sorted by descending score. An empty / blank
-    query, or ``k <= 0``, yields an empty list.
+    ``query_vec`` must be a unit-norm ``(1024,)`` float array. ``exclude_idx``,
+    when set, masks that row's score to ``-inf`` so the corresponding sound
+    can't end up in the top-k (used to drop the self-hit in "more like this"
+    queries).
     """
-    query = (query or "").strip()
-    if not query or k <= 0:
+    if k <= 0:
         return []
 
     filenames, embeddings = _load_cache()
     if embeddings.size == 0:
         return []
 
-    text_vec = _embed_text(query)
     # (N,) cosine since both sides unit-norm. `asarray` pins the result to a
     # concrete float dtype so type-checkers don't widen it into a union that
     # includes bool (which would reject the unary `-` below).
-    scores = np.asarray(embeddings @ text_vec, dtype=np.float32)
+    scores = np.asarray(embeddings @ query_vec, dtype=np.float32)
+    if exclude_idx is not None and 0 <= exclude_idx < len(scores):
+        scores[exclude_idx] = -np.inf
 
-    k = min(k, len(scores))
+    # Cap k to the number of candidates that aren't masked out.
+    candidates = len(scores) - (1 if exclude_idx is not None else 0)
+    k = min(k, candidates)
+    if k <= 0:
+        return []
+
     # argpartition gives the top-k unsorted in O(N); a second argsort orders
     # only those k entries. Overkill for 25 files but trivial and scales.
     neg_scores = -scores
@@ -116,3 +128,43 @@ def search_by_text(query: str, k: int = 8) -> List[SearchHit]:
             continue
         hits.append(SearchHit(point=point, score=float(scores[idx])))
     return hits
+
+
+def search_by_text(query: str, k: int = 8) -> List[SearchHit]:
+    """Rank library sounds by cosine similarity to ``query`` in CLAP space.
+
+    Returns at most ``k`` hits, sorted by descending score. An empty / blank
+    query, or ``k <= 0``, yields an empty list.
+    """
+    query = (query or "").strip()
+    if not query or k <= 0:
+        return []
+
+    text_vec = _embed_text(query)
+    return _rank_by_vector(text_vec, k)
+
+
+def search_similar(filename: str, k: int = 8) -> List[SearchHit]:
+    """Rank library sounds by cosine similarity to the audio at ``filename``.
+
+    The query sound itself is always excluded from the result, so a library
+    of ``N`` sounds can return at most ``N - 1`` neighbours.
+
+    Raises :class:`KeyError` if ``filename`` isn't present in the cached
+    embedding matrix (typically because it was added after the last cache
+    build).
+    """
+    filename = (filename or "").strip()
+    if not filename or k <= 0:
+        return []
+
+    filenames, embeddings = _load_cache()
+    try:
+        idx = filenames.index(filename)
+    except ValueError as exc:
+        raise KeyError(
+            f"{filename!r} not present in CLAP embeddings cache"
+        ) from exc
+
+    query_vec = np.asarray(embeddings[idx], dtype=np.float32)
+    return _rank_by_vector(query_vec, k, exclude_idx=idx)
