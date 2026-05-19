@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SCAPES Audio Interpolation</title>
+</head>
+<body>
+  <h1>Interpolate Between Two Audios</h1>
+  <form id="interpolate-form">
+    <label for="audio1">Audio 1:</label>
+    <select id="audio1" name="audio1">
+      <option value="campfire">Campfire</option>
+      <option value="keyboard">Keyboard</option>
+      <!-- Add more options as needed -->
+    </select>
+    <br>
+    <label for="audio2">Audio 2:</label>
+    <select id="audio2" name="audio2">
+      <option value="campfire">Campfire</option>
+      <option value="keyboard">Keyboard</option>
+      <!-- Add more options as needed -->
+    </select>
+    <br>
+    <button type="submit">Interpolate</button>
+  </form>
+  <audio id="audio-player" controls style="display:none;"></audio>
+  <script>
+    document.getElementById('interpolate-form').onsubmit = async function(e) {
+      e.preventDefault();
+      const audio1 = document.getElementById('audio1').value;
+      const audio2 = document.getElementById('audio2').value;
+      const payload = {
+        audio_1: audio1,
+        audio_2: audio2,
+        <!-- Add other required fields for InterpolationElement if needed -->
+      };
+      const response = await fetch('/interpolate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const player = document.getElementById('audio-player');
+        player.src = url;
+        player.style.display = 'block';
+        player.play();
+      } else {
+        alert('Interpolation failed: ' + (await response.text()));
+      }
+    };
+  </script>
+</body>
+</html>

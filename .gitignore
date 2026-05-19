@@ -52,6 +52,12 @@ app/backend/inference/cache/
 .ipynb_checkpoints/
 
 # =========================
+# Frontend build / dev caches
+# =========================
+.vite/
+app/frontend/.vite/
+
+# =========================
 # OS files
 # =========================
 .DS_Store

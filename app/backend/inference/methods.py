@@ -1,9 +1,12 @@
 import math
 import logging
+import os
+import threading
 import time
 from functools import lru_cache
 from io import BytesIO
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import Callable, List, Optional, Tuple
 
 import librosa
 import soundfile as sf
@@ -252,8 +255,13 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     return buffer.getvalue()
 
 
-def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.Tensor, int]:
-    """Run the interpolation pipeline and return ``(audio[C, T], sample_rate)``."""
+def _run_interpolation(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+):
+    """Drive ``interpolate_clips`` for an :class:`InterpolationElement` payload."""
     engine = get_inference_engine()
 
     src_a = get_or_encode(engine, request.audio1)
@@ -273,8 +281,8 @@ def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.T
         nfe=request.nfe,
         decode_method=request.decode_method,
         context_mode_override=request.context_mode,
-        # cancel_event / progress not wired to the synchronous endpoints yet;
-        # left as None until a streaming endpoint exists.
+        cancel_event=cancel_event,
+        progress=progress,
     )
     elapsed = time.time() - start_time
     logger.info(
@@ -285,7 +293,20 @@ def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.T
         result.context_mode,
         result.duration_sec,
     )
+    return result
 
+
+def _render_interpolation_tensor(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> Tuple[torch.Tensor, int]:
+    """Thin wrapper around ``_run_interpolation`` returning ``(audio[C, T], sample_rate)``.
+
+    Needed by ``render_timeline_audio``.
+    """
+    result = _run_interpolation(request, cancel_event=cancel_event, progress=progress)
     audio = result.audio
     if audio.dim() == 3:
         audio = audio.squeeze(0)
@@ -297,8 +318,9 @@ def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.T
 
 
 def render_interpolation_audio(request: InterpolationElement) -> bytes:
-    audio, sample_rate = _render_interpolation_tensor(request)
-    return _waveform_to_wav_bytes(audio, sample_rate)
+    """Synchronous render path used by the legacy ``/interpolate`` endpoint."""
+    result = _run_interpolation(request)
+    return _waveform_to_wav_bytes(result.audio, result.sample_rate)
 
 
 def _load_clip_tensor(
@@ -389,4 +411,29 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
         stitched.shape[-1] / sample_rate,
     )
     return _waveform_to_wav_bytes(stitched, sample_rate)
+
+
+def render_interpolation_to_file(
+    request: InterpolationElement,
+    output_path: Path,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """Render an interpolation and atomically persist the WAV to ``output_path``.
+
+    Returns the size in bytes of the written file. Used by the async ``/render``
+    job runner; supports cooperative cancellation through ``cancel_event`` and
+    progress reporting via ``progress(done, total)``.
+    """
+    result = _run_interpolation(
+        request, cancel_event=cancel_event, progress=progress
+    )
+    audio_bytes = _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp_path.write_bytes(audio_bytes)
+    os.replace(tmp_path, output_path)
+    return len(audio_bytes)
 
