@@ -45,6 +45,32 @@
   border-bottom: 1px solid var(--border-0);
 }
 
+.app-header .settings-btn {
+  margin-left: auto;
+}
+
+.app-logo {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border-2);
+  background: #fff;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.app-logo:hover {
+  transform: scale(1.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.app-logo:active {
+  transform: scale(0.96);
+}
+
 .app-header-badge {
   display: inline-flex;
   align-items: center;
