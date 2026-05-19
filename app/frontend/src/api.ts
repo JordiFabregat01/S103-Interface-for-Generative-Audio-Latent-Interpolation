@@ -27,6 +27,14 @@ export const searchSounds = (q: string, k = 8): Promise<SoundHit[]> =>
     return res.json();
   });
 
+export const findSimilarSounds = (filename: string, k = 8): Promise<SoundHit[]> =>
+  fetch(
+    `${API_BASE}/sounds/${encodeURIComponent(filename)}/similar?k=${k}`
+  ).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+
 export type InterpolationRequest = {
   audio1: string;
   audio2: string;
