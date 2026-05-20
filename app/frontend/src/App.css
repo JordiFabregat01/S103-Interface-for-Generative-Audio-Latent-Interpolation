@@ -45,8 +45,11 @@
   border-bottom: 1px solid var(--border-0);
 }
 
-.app-header .settings-btn {
+.app-header-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .app-logo {
@@ -384,17 +387,31 @@
   position: relative;
   overflow: hidden;
   border-radius: 5px;
-  background-color: var(--surface-1);
+  background-color: #141920;
   background-image:
-    radial-gradient(circle, rgba(61, 68, 77, 0.5) 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 50%, rgba(88, 166, 255, 0.05) 0%, transparent 65%);
-  background-size: 28px 28px, 100% 100%;
+    radial-gradient(circle, rgba(55, 65, 75, 0.55) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 50%, rgba(88, 166, 255, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 15% 85%, rgba(110, 231, 212, 0.03) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 20%, rgba(56, 189, 248, 0.03) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, transparent 38%, rgba(10, 14, 20, 0.65) 100%);
+  background-size: 24px 24px, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
   border: 1px solid var(--border-0);
 }
 
 .explorer-plot {
   position: absolute;
   inset: 32px 44px;
+  z-index: 1;
+}
+
+/* ─── Territory SVG layer ────────────────────────────────────── */
+.explorer-territory-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
 }
 
 /* ─── Dot (scatter plot point) ───────────────────────────────── */
@@ -405,38 +422,66 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: transform 0.12s;
   user-select: none;
+  z-index: 1;
 }
 
 .dot-marker {
-  font-size: 13px;
-  color: var(--accent);
-  line-height: 1;
-  transition: color 0.12s, text-shadow 0.12s;
-  text-shadow: 0 0 6px var(--accent-glow);
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 33% 27%, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.38) 16%, transparent 40%),
+    var(--dot-color, var(--accent));
+  box-shadow:
+    0 0 0 1.5px rgba(255,255,255,0.08),
+    0 2px 5px rgba(0,0,0,0.55),
+    0 0 8px 2px var(--dot-glow, var(--accent-glow)),
+    0 0 22px 7px var(--dot-glow, var(--accent-glow));
+  position: relative;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  flex-shrink: 0;
+}
+
+.dot-marker::before,
+.dot-marker::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dot-color, var(--accent));
+  opacity: 0;
+  pointer-events: none;
 }
 
 .dot-label {
-  font-size: 10px;
+  font-size: 9px;
   font-family: var(--font-mono);
-  color: var(--text-2);
-  margin-top: 3px;
+  color: var(--text-3);
+  margin-top: 5px;
   white-space: nowrap;
   pointer-events: none;
-  letter-spacing: 0.03em;
-  transition: color 0.12s, opacity 0.12s;
-  opacity: 0.85;
+  letter-spacing: 0.04em;
+  opacity: 0.62;
+  transition: opacity 0.15s, color 0.15s;
 }
 
 .dot:hover {
-  transform: translate(-50%, -50%) scale(1.6);
-  z-index: 2;
+  z-index: 10;
 }
 
 .dot:hover .dot-marker {
-  color: var(--accent);
-  text-shadow: 0 0 8px var(--accent-glow);
+  transform: scale(1.5);
+  box-shadow:
+    0 0 0 1.5px rgba(255,255,255,0.12),
+    0 3px 8px rgba(0,0,0,0.55),
+    0 0 14px 5px var(--dot-glow, var(--accent-glow)),
+    0 0 32px 10px var(--dot-glow, var(--accent-glow));
+}
+
+.dot:hover .dot-marker::after {
+  animation: dot-ripple 0.6s ease-out forwards;
 }
 
 .dot:hover .dot-label {
@@ -444,16 +489,69 @@
   color: var(--text-2);
 }
 
+/* ─── Selected ───────────────────────────────────────────────── */
 .dot.selected .dot-marker {
-  color: var(--amber);
-  font-size: 11px;
-  text-shadow: 0 0 8px rgba(232, 168, 68, 0.4);
+  width: 13px;
+  height: 13px;
+  background:
+    radial-gradient(circle at 33% 27%, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.4) 16%, transparent 40%),
+    var(--amber);
+  box-shadow:
+    0 0 0 1.5px rgba(255,255,255,0.1),
+    0 2px 6px rgba(0,0,0,0.55),
+    0 0 10px 3px rgba(227,179,65,0.5),
+    0 0 28px 9px rgba(227,179,65,0.35);
+  animation: dot-selected-pulse 2s ease-in-out infinite;
 }
 
 .dot.selected .dot-label {
   opacity: 1;
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+/* ─── Playing (sonar rings) ──────────────────────────────────── */
+.dot.playing .dot-marker::before {
+  border-color: var(--dot-color, var(--accent));
+  animation: sonar-ring 2s ease-out infinite;
+}
+
+.dot.playing .dot-marker::after {
+  border-color: var(--dot-color, var(--accent));
+  animation: sonar-ring 2s ease-out infinite;
+  animation-delay: -1s;
+}
+
+.dot.selected.playing .dot-marker::before,
+.dot.selected.playing .dot-marker::after {
+  border-color: var(--amber);
+}
+
+@keyframes sonar-ring {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  100% { transform: scale(4.5); opacity: 0;   }
+}
+
+@keyframes dot-ripple {
+  0%   { transform: scale(1);   opacity: 0.65; }
+  100% { transform: scale(3.5); opacity: 0;    }
+}
+
+@keyframes dot-selected-pulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 -3px 7px rgba(0,0,0,0.35),
+      0 3px 8px rgba(0,0,0,0.45),
+      0 0 0 2px rgba(227,179,65,0.3),
+      0 0 14px 4px rgba(227,179,65,0.35);
+  }
+  50% {
+    box-shadow:
+      inset 0 -3px 7px rgba(0,0,0,0.35),
+      0 3px 8px rgba(0,0,0,0.45),
+      0 0 0 4px rgba(227,179,65,0.12),
+      0 0 24px 7px rgba(227,179,65,0.45);
+  }
 }
 
 /* ─── Timeline Panel ─────────────────────────────────────────── */
@@ -489,6 +587,45 @@
 .timeline-header-left .interp-result {
   flex: 1;
   min-width: 0;
+}
+
+.timeline-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.zoom-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--surface-3);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.zoom-label {
+  font-size: 11px;
+  color: var(--text-3);
+  width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .timeline-header-right {
@@ -1110,6 +1247,14 @@ button {
   border-color: var(--border-2);
 }
 
+.help-btn {
+  width: 32px;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 6px 0;
+  text-align: center;
+}
+
 .settings-backdrop {
   position: fixed;
   inset: 0;
@@ -1171,4 +1316,146 @@ button {
 
 .arrow-head {
   fill: var(--accent);
+}
+
+/* ─── Info Modals (How to Use / About) ───────────────────────── */
+.info-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.info-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 200;
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100vh - 80px);
+  background: var(--surface-0);
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.info-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border-0);
+  flex-shrink: 0;
+}
+
+.info-modal-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.info-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+/* How to Use steps */
+.how-to-step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.how-to-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.how-to-step strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: 0.03em;
+  margin-bottom: 3px;
+}
+
+.how-to-step p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.how-to-tip {
+  padding: 10px 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.how-to-tip strong {
+  color: var(--text-2);
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+
+/* About body */
+.about-body p {
+  margin: 0;
+}
+
+.about-tagline {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: 0.02em;
+}
+
+.about-divider {
+  height: 1px;
+  background: var(--border-0);
+}
+
+.about-credits {
+  font-size: 12px;
+  color: var(--text-3);
 }
