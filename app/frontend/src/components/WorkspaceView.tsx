@@ -261,6 +261,27 @@ export default function WorkspaceView() {
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
+const getSoundColor = (name: string, filename = ""): { color: string; glow: string } => {
+  const lower = `${name} ${filename}`.toLowerCase();
+  if (lower.includes("wind") || lower.includes("breeze"))
+    return { color: "#6ee7d4", glow: "rgba(110, 231, 212, 0.45)" };
+  if (lower.includes("thunder") || lower.includes("storm"))
+    return { color: "#a78bfa", glow: "rgba(167, 139, 250, 0.45)" };
+  if (lower.includes("rain"))
+    return { color: "#7dd3fc", glow: "rgba(125, 211, 252, 0.45)" };
+  if (lower.includes("waterfall") || lower.includes("waterrocks") || lower.includes("underwater") || lower.includes("river") || lower.includes("sea") || lower.includes("waves") || lower.includes("water"))
+    return { color: "#38bdf8", glow: "rgba(56, 189, 248, 0.45)" };
+  if (lower.includes("fire"))
+    return { color: "#fb923c", glow: "rgba(251, 146, 60, 0.45)" };
+  if (lower.includes("bird") || lower.includes("seagull") || lower.includes("loon"))
+    return { color: "#86efac", glow: "rgba(134, 239, 172, 0.45)" };
+  if (lower.includes("bee") || lower.includes("cicada") || lower.includes("cricket"))
+    return { color: "#fde047", glow: "rgba(253, 224, 71, 0.45)" };
+  if (lower.includes("footstep") || lower.includes("keyboard") || lower.includes("step"))
+    return { color: "#c084fc", glow: "rgba(192, 132, 252, 0.45)" };
+  return { color: "#58a6ff", glow: "rgba(88, 166, 255, 0.45)" };
+};
+
 const getEmoji = (name: string, filename = "") => {
   const lower = `${name} ${filename}`.toLowerCase();
 
@@ -427,6 +448,7 @@ const moveClip = (id: number, newStartSec: number) => {
   const canInterpolate = timelineClips.length >= 2;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
+
 const selectedPathPoints = sortedClips
   .map((clip) =>
     placedPoints.find((point) => point.filename === clip.filename)
@@ -742,7 +764,30 @@ const selectedPath = selectedPathPoints
           <p className="library-hint">Click to preview · Drag to timeline</p>
           <div className="explorer-plot-wrap">
             <div className="explorer-plot">
-              {interpUrl && selectedPathPoints.length >= 2 && (
+              {/* Territory blobs */}
+              <svg className="explorer-territory-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <filter id="territory-blur" x="-80%" y="-80%" width="260%" height="260%">
+                    <feGaussianBlur stdDeviation="5" />
+                  </filter>
+                </defs>
+                {placedPoints.map((point) => {
+                  const { color } = getSoundColor(point.name, point.filename);
+                  return (
+                    <circle
+                      key={point.id}
+                      cx={point.px}
+                      cy={point.py}
+                      r="7"
+                      fill={color}
+                      opacity="0.06"
+                      filter="url(#territory-blur)"
+                    />
+                  );
+                })}
+              </svg>
+
+{interpUrl && selectedPathPoints.length >= 2 && (
                 <svg
                   className="interpolation-path-svg"
                   viewBox="0 0 100 100"
@@ -772,30 +817,35 @@ const selectedPath = selectedPathPoints
                   />
                 </svg>
               )}
-              {placedPoints.map((point) => (
-                <div
-                  key={point.id}
-                  className={`dot${explorerSelected?.id === point.id ? " selected" : ""}`}
-                  style={{ left: `${point.px}%`, top: `${point.py}%` }}
-                  draggable
-                  onDragStart={() => { dragSoundRef.current = point; }}
-                  onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
-                  onClick={() => {
-                    if (explorerSelected?.id === point.id) {
-                      if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
-                    } else {
-                      explorerPlayer.pause();
-                      setExplorerSelected(point);
-                      explorerPlayer.play(getSoundUrl(point.filename));
-                    }
-                  }}
-                  title={point.name}
-                >
-                  <span className="dot-marker">●</span>
-                  <span className="dot-label">{point.name}</span>
-                </div>
-              ))}
+
+              {placedPoints.map((point) => {
+                const { color, glow } = getSoundColor(point.name, point.filename);
+                return (
+                  <div
+                    key={point.id}
+                    className={`dot${explorerSelected?.id === point.id ? " selected" : ""}${explorerSelected?.id === point.id && explorerPlayer.isPlaying ? " playing" : ""}`}
+                    style={{ left: `${point.px}%`, top: `${point.py}%`, "--dot-color": color, "--dot-glow": glow } as React.CSSProperties}
+                    draggable
+                    onDragStart={() => { dragSoundRef.current = point; }}
+                    onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
+                    onClick={() => {
+                      if (explorerSelected?.id === point.id) {
+                        if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
+                      } else {
+                        explorerPlayer.pause();
+                        setExplorerSelected(point);
+                        explorerPlayer.play(getSoundUrl(point.filename));
+                      }
+                    }}
+                    title={point.name}
+                  >
+                    <span className="dot-marker" />
+                    <span className="dot-label">{point.name}</span>
+                  </div>
+                );
+              })}
             </div>
+
           </div>
           {explorerSelected && (
             <div className="sound-preview-panel">
