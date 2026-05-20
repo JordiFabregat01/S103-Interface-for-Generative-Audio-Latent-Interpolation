@@ -45,8 +45,11 @@
   border-bottom: 1px solid var(--border-0);
 }
 
-.app-header .settings-btn {
+.app-header-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .app-logo {
@@ -1149,6 +1152,14 @@ button {
   border-color: var(--border-2);
 }
 
+.help-btn {
+  width: 32px;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 6px 0;
+  text-align: center;
+}
+
 .settings-backdrop {
   position: fixed;
   inset: 0;
@@ -1210,4 +1221,146 @@ button {
 
 .arrow-head {
   fill: var(--accent);
+}
+
+/* ─── Info Modals (How to Use / About) ───────────────────────── */
+.info-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.info-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 200;
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100vh - 80px);
+  background: var(--surface-0);
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.info-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border-0);
+  flex-shrink: 0;
+}
+
+.info-modal-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.info-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+/* How to Use steps */
+.how-to-step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.how-to-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.how-to-step strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: 0.03em;
+  margin-bottom: 3px;
+}
+
+.how-to-step p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.how-to-tip {
+  padding: 10px 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.how-to-tip strong {
+  color: var(--text-2);
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+
+/* About body */
+.about-body p {
+  margin: 0;
+}
+
+.about-tagline {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: 0.02em;
+}
+
+.about-divider {
+  height: 1px;
+  background: var(--border-0);
+}
+
+.about-credits {
+  font-size: 12px;
+  color: var(--text-3);
 }

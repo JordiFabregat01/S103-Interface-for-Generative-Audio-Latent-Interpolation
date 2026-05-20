@@ -81,6 +81,8 @@ export default function WorkspaceView() {
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHowToUse, setShowHowToUse] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
   const pxPerSecRef = useRef(DEFAULT_PX_PER_SEC);
   const zoomCenterSecRef = useRef<number | null>(null);
@@ -446,12 +448,30 @@ const selectedPath = selectedPathPoints
       <div className="app-header">
         <h1><span style={{ color: "#1E90FF" }}>GALI</span> Generative Audio Latent Interpolation</h1>
 
-        <button
-          className="settings-btn"
-          onClick={() => setShowSettings(!showSettings)}
-        >
-          ⚙️
-        </button>
+        <div className="app-header-actions">
+          <button
+            className="settings-btn help-btn"
+            onClick={() => { setShowAbout(false); setShowHowToUse(!showHowToUse); }}
+            title="How to use"
+          >
+            ?
+          </button>
+
+          <button
+            className="settings-btn"
+            onClick={() => { setShowHowToUse(false); setShowAbout(!showAbout); }}
+            title="About"
+          >
+            About
+          </button>
+
+          <button
+            className="settings-btn"
+            onClick={() => setShowSettings(!showSettings)}
+          >
+            ⚙️
+          </button>
+        </div>
 
         <img
           className="app-logo"
@@ -486,6 +506,84 @@ const selectedPath = selectedPathPoints
     </div>
       </>
 )}
+
+      {showHowToUse && (
+        <>
+          <div className="info-modal-backdrop" onClick={() => setShowHowToUse(false)} />
+          <div className="info-modal" role="dialog" aria-modal="true" aria-label="How to use">
+            <div className="info-modal-header">
+              <h3>How to Use GALI</h3>
+              <button className="close-preview-btn" onClick={() => setShowHowToUse(false)}>✕</button>
+            </div>
+            <div className="info-modal-body">
+              <div className="how-to-step">
+                <span className="how-to-num">1</span>
+                <div>
+                  <strong>Browse the Sound Library</strong>
+                  <p>The left panel lists all available ambient sounds. Type in the search bar to filter by keyword, or use <em>Find Similar</em> on any sound to surface related ones via AI embedding search.</p>
+                </div>
+              </div>
+              <div className="how-to-step">
+                <span className="how-to-num">2</span>
+                <div>
+                  <strong>Preview a Sound</strong>
+                  <p>Click any sound card to play it. A mini player appears at the bottom of the library with scrubbing and restart controls. Click again to pause.</p>
+                </div>
+              </div>
+              <div className="how-to-step">
+                <span className="how-to-num">3</span>
+                <div>
+                  <strong>Build Your Timeline</strong>
+                  <p>Drag sound cards from the library — or dots from the Latent Space Explorer — onto the timeline. Clips snap to each other's edges. Drag a clip to reposition it; click a clip to select it, then drag the blue handles on its edges to resize.</p>
+                </div>
+              </div>
+              <div className="how-to-step">
+                <span className="how-to-num">4</span>
+                <div>
+                  <strong>Add Interpolations</strong>
+                  <p>When two clips <em>touch or overlap</em>, GALI automatically crossfades between them. When there's a <em>gap</em>, click the dashed region between clips to mark it as an interpolation (amber striped) — otherwise it stays silent. Click the ✕ on a gap region to revert it to silence.</p>
+                </div>
+              </div>
+              <div className="how-to-step">
+                <span className="how-to-num">5</span>
+                <div>
+                  <strong>Explore Latent Space</strong>
+                  <p>The right panel visualises all sounds as dots in a 2-D latent space. Sounds that are acoustically similar sit closer together. You can preview any dot by clicking it, or drag it directly to the timeline.</p>
+                </div>
+              </div>
+              <div className="how-to-step">
+                <span className="how-to-num">6</span>
+                <div>
+                  <strong>Render &amp; Download</strong>
+                  <p>Hit <strong>Interpolate</strong> (bottom-right of the timeline) to render the full sequence. When it's ready, use the player in the timeline header to preview, and click <strong>Download WAV</strong> to save the file.</p>
+                </div>
+              </div>
+              <div className="how-to-tip">
+                <strong>Tip:</strong> Use <kbd>Ctrl</kbd> + scroll on the timeline to zoom in or out. The zoom level shows as a percentage next to the −/+ buttons.
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showAbout && (
+        <>
+          <div className="info-modal-backdrop" onClick={() => setShowAbout(false)} />
+          <div className="info-modal" role="dialog" aria-modal="true" aria-label="About">
+            <div className="info-modal-header">
+              <h3>About GALI</h3>
+              <button className="close-preview-btn" onClick={() => setShowAbout(false)}>✕</button>
+            </div>
+            <div className="info-modal-body about-body">
+              <p className="about-tagline"><span style={{ color: "#1E90FF" }}>GALI</span> — Generative Audio Latent Interpolation</p>
+              <p>GALI is a tool for exploring and blending ambient soundscapes using generative AI. Sounds are encoded into a shared latent space using the <strong>CLAP</strong> audio-language model, letting you search by text, find acoustically similar sounds, and interpolate between them to create seamless audio transitions.</p>
+              <p>Place sounds on the timeline, define where crossfades and interpolations happen, and render a fully blended audio composition all in the browser.</p>
+              <div className="about-divider" />
+              <p className="about-credits">Built as part of the Music Technology Group at <strong>Universitat Pompeu Fabra</strong></p>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="workspace-layout">
         <div className="library-panel">
