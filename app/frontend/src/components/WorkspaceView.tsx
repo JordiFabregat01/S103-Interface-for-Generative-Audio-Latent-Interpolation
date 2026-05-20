@@ -3,7 +3,7 @@ import "../App.css";
 import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, type Segment, type SoundPoint, type SoundHit } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
-// start and duration are stored in seconds; pixels = value * PX_PER_SEC
+// start and duration are stored in seconds; pixels = value * pxPerSec
 type TimelineClip = {
   id: number;
   name: string;
@@ -20,16 +20,18 @@ type ResizeState = {
   startDur: number;
 };
 
-const PX_PER_SEC = 80;
+const DEFAULT_PX_PER_SEC = 80;
+const MIN_PX_PER_SEC = 20;
+const MAX_PX_PER_SEC = 80;
 const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
-const SNAP_THRESHOLD_SEC = 0.15;
+const SNAP_THRESHOLD_PX = 12;
 const LOADING_VERBS = ["working", "cooking", "interpolating", "generating"] as const;
 
-function snapEdge(value: number, targets: number[]): { snapped: number; dist: number } {
+function snapEdge(value: number, targets: number[], threshold: number): { snapped: number; dist: number } {
   let best = value;
-  let bestDist = SNAP_THRESHOLD_SEC;
+  let bestDist = threshold;
   for (const t of targets) {
     const d = Math.abs(value - t);
     if (d < bestDist) { bestDist = d; best = t; }
@@ -79,7 +81,36 @@ export default function WorkspaceView() {
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
   const [showSettings, setShowSettings] = useState(false);
+  const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
+  const pxPerSecRef = useRef(DEFAULT_PX_PER_SEC);
+  const zoomCenterSecRef = useRef<number | null>(null);
+  useEffect(() => { pxPerSecRef.current = pxPerSec; }, [pxPerSec]);
+  useEffect(() => {
+    if (zoomCenterSecRef.current === null) return;
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    scroll.scrollLeft = zoomCenterSecRef.current * pxPerSec - scroll.clientWidth / 2;
+    zoomCenterSecRef.current = null;
+  }, [pxPerSec]);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const centerSec = (el.scrollLeft + el.clientWidth / 2) / pxPerSecRef.current;
+      zoomCenterSecRef.current = centerSec;
+      setPxPerSec((p) =>
+        e.deltaY < 0
+          ? Math.min(MAX_PX_PER_SEC, p * 2)
+          : Math.max(MIN_PX_PER_SEC, p / 2)
+      );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   useEffect(() => {
     if (interpolatedGaps.size === 0) return;
@@ -108,18 +139,19 @@ export default function WorkspaceView() {
   useEffect(() => {
     if (!resizing) return;
     const onMove = (e: MouseEvent) => {
-      const dx = (e.clientX - resizing.startMouseX) / PX_PER_SEC;
+      const dx = (e.clientX - resizing.startMouseX) / pxPerSecRef.current;
       setTimelineClips((prev) => {
         const targets = clipEdgeTargets(prev, resizing.id);
         return prev.map((c) => {
           if (c.id !== resizing.id) return c;
+          const snapThreshold = SNAP_THRESHOLD_PX / pxPerSecRef.current;
           if (resizing.edge === "right") {
             const rawRight = resizing.startSec + resizing.startDur + dx;
-            const { snapped } = snapEdge(rawRight, targets);
+            const { snapped } = snapEdge(rawRight, targets, snapThreshold);
             return { ...c, duration: Math.max(MIN_CLIP_DURATION_SEC, snapped - resizing.startSec) };
           } else {
             const rawLeft = resizing.startSec + dx;
-            const { snapped } = snapEdge(rawLeft, targets);
+            const { snapped } = snapEdge(rawLeft, targets, snapThreshold);
             const newStart = Math.max(0, snapped);
             const moved = newStart - resizing.startSec;
             return {
@@ -375,19 +407,20 @@ const moveClip = (id: number, newStartSec: number) => {
   sortedClips.forEach((clip, index, arr) => {
     const next = arr[index + 1];
     if (next && Math.abs(next.start - (clip.start + clip.duration)) < 0.01) {
-      snapJoints.push((clip.start + clip.duration) * PX_PER_SEC);
+      snapJoints.push((clip.start + clip.duration) * pxPerSec);
     }
   });
 
   const rightmostSec = timelineClips
     .filter((c) => c.id !== draggingId)
     .reduce((max, c) => Math.max(max, c.start + c.duration), 0);
-  const rightmostPx = rightmostSec * PX_PER_SEC;
-  const snapUp = (px: number) => Math.ceil(px / PX_PER_SEC) * PX_PER_SEC;
+  const rightmostPx = rightmostSec * pxPerSec;
+  const snapUp = (px: number) => Math.ceil(px / pxPerSec) * pxPerSec;
   const clipWidth = rightmostPx > 0 ? snapUp(rightmostPx + TIMELINE_BUFFER_PX) : 0;
   const dragWidth = dragExtentPx > containerWidth ? snapUp(dragExtentPx + TIMELINE_BUFFER_PX) : 0;
   const timelineWidth = Math.max(containerWidth, clipWidth, dragWidth, draggingId ? dragStartWidth : 0);
-  const rulerSeconds = Math.ceil(timelineWidth / PX_PER_SEC) + 1;
+  const rulerInterval = Math.max(1, DEFAULT_PX_PER_SEC / pxPerSec);
+  const rulerMarkCount = Math.floor(timelineWidth / (rulerInterval * pxPerSec));
 
   const canInterpolate = timelineClips.length >= 2;
 
@@ -689,6 +722,29 @@ const selectedPath = selectedPathPoints
         <div className="timeline-header">
           <div className="timeline-header-left">
             <h2>Timeline</h2>
+            <div className="timeline-zoom-controls">
+              <button
+                className="zoom-btn"
+                onClick={() => {
+                  const scroll = scrollRef.current;
+                  if (scroll) zoomCenterSecRef.current = (scroll.scrollLeft + scroll.clientWidth / 2) / pxPerSec;
+                  setPxPerSec((p) => Math.max(MIN_PX_PER_SEC, p / 2));
+                }}
+                disabled={pxPerSec <= MIN_PX_PER_SEC}
+                title="Zoom out"
+              >−</button>
+              <span className="zoom-label">{Math.round(pxPerSec / DEFAULT_PX_PER_SEC * 100)}%</span>
+              <button
+                className="zoom-btn"
+                onClick={() => {
+                  const scroll = scrollRef.current;
+                  if (scroll) zoomCenterSecRef.current = (scroll.scrollLeft + scroll.clientWidth / 2) / pxPerSec;
+                  setPxPerSec((p) => Math.min(MAX_PX_PER_SEC, p * 2));
+                }}
+                disabled={pxPerSec >= MAX_PX_PER_SEC}
+                title="Zoom in"
+              >+</button>
+            </div>
             {interpError && <p className="interp-error">{interpError}</p>}
             {interpUrl && !interpLoading && (
               <div className="interp-result">
@@ -737,10 +793,10 @@ const selectedPath = selectedPathPoints
 
         <div className="timeline-scroll" ref={scrollRef}>
           <div className="timeline-ruler" style={{ width: `${timelineWidth}px` }}>
-            {Array.from({ length: rulerSeconds }, (_, s) => (
-              <div key={s} className="timeline-ruler-mark" style={{ left: `${s * PX_PER_SEC}px` }}>
+            {Array.from({ length: rulerMarkCount + 1 }, (_, i) => (
+              <div key={i} className="timeline-ruler-mark" style={{ left: `${i * rulerInterval * pxPerSec}px` }}>
                 <div className="timeline-ruler-tick" />
-                <span className="timeline-ruler-label">{s}s</span>
+                <span className="timeline-ruler-label">{i * rulerInterval}s</span>
               </div>
             ))}
           </div>
@@ -765,8 +821,8 @@ const selectedPath = selectedPathPoints
                 id: Date.now(),
                 name: sound.name,
                 filename: sound.filename,
-                start: Math.max(0, dropX / PX_PER_SEC - DEFAULT_CLIP_DURATION_SEC / 2),
-                duration: DEFAULT_CLIP_DURATION_SEC,
+                start: Math.max(0, dropX / pxPerSec - DEFAULT_CLIP_DURATION_SEC * (DEFAULT_PX_PER_SEC / pxPerSec) / 2),
+                duration: DEFAULT_CLIP_DURATION_SEC * (DEFAULT_PX_PER_SEC / pxPerSec),
               };
               setTimelineClips((prev) => [...prev, newClip]);
               setInterpUrl("");
@@ -785,8 +841,8 @@ const selectedPath = selectedPathPoints
                 key={i}
                 className="timeline-overlap-region"
                 style={{
-                  left: `${region.start * PX_PER_SEC}px`,
-                  width: `${(region.end - region.start) * PX_PER_SEC}px`,
+                  left: `${region.start * pxPerSec}px`,
+                  width: `${(region.end - region.start) * pxPerSec}px`,
                 }}
               />
             ))}
@@ -798,8 +854,8 @@ const selectedPath = selectedPathPoints
                   key={region.key}
                   className={`timeline-gap-region${isInterpolated ? " interpolated" : ""}`}
                   style={{
-                    left: `${region.start * PX_PER_SEC}px`,
-                    width: `${(region.end - region.start) * PX_PER_SEC}px`,
+                    left: `${region.start * pxPerSec}px`,
+                    width: `${(region.end - region.start) * pxPerSec}px`,
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -825,8 +881,8 @@ const selectedPath = selectedPathPoints
 
             {timelineClips.map((clip) => {
               const isSelected = selectedClipId === clip.id;
-              const leftPx = clip.start * PX_PER_SEC;
-              const widthPx = clip.duration * PX_PER_SEC;
+              const leftPx = clip.start * pxPerSec;
+              const widthPx = clip.duration * pxPerSec;
               return (
                 <div
                   key={clip.id}
@@ -842,10 +898,11 @@ const selectedPath = selectedPathPoints
                   onDrag={(e) => {
                     if (e.clientX <= 0) return;
                     const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
-                    const rawStart = (e.clientX - timelineLeft) / PX_PER_SEC - clip.duration / 2;
+                    const rawStart = (e.clientX - timelineLeft) / pxPerSec - clip.duration / 2;
                     const targets = clipEdgeTargets(clipsRef.current, clip.id);
-                    const left = snapEdge(rawStart, targets);
-                    const right = snapEdge(rawStart + clip.duration, targets);
+                    const snapThreshold = SNAP_THRESHOLD_PX / pxPerSec;
+                    const left = snapEdge(rawStart, targets, snapThreshold);
+                    const right = snapEdge(rawStart + clip.duration, targets, snapThreshold);
                     const snapped = left.dist <= right.dist ? left.snapped : right.snapped - clip.duration;
                     moveClip(clip.id, Math.max(0, snapped));
                   }}
