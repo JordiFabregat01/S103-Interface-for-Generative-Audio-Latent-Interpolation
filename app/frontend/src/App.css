@@ -491,6 +491,45 @@
   min-width: 0;
 }
 
+.timeline-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.zoom-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--surface-3);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.zoom-label {
+  font-size: 11px;
+  color: var(--text-3);
+  width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .timeline-header-right {
   display: flex;
   align-items: center;
