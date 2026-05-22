@@ -373,20 +373,80 @@ def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
 
 
 def render_timeline_audio(request: RenderRequest) -> bytes:
-    """Render a full timeline (clips + silence + interpolation) to a WAV byte string."""
+    """Render a clip / silence / interpolation timeline to a 16-bit PCM WAV.
+
+    Interpolation anchors are pinned to the surrounding clips' cut edges so
+    every bridge opens at end-of-A and closes at start-of-B. Negative
+    ``distance_sec`` = overlap: neighbor clips are trimmed by ``|distance_sec|``
+    and ``a_anchor`` shifts back so the dynamic window lands on the cut.
+    """
     engine = get_inference_engine()
     sample_rate = engine.sr
+    segs = request.segments
 
-    segments: List[torch.Tensor] = []
-    for index, segment in enumerate(request.segments):
+    head_trim_samples = [0] * len(segs)
+    tail_trim_samples = [0] * len(segs)
+    anchor_overrides: dict[int, Tuple[float, float]] = {}
+
+    for idx, segment in enumerate(segs):
+        if segment.type != "interpolation":
+            continue
+
+        a_anchor = segment.a_anchor_sec
+        b_anchor = segment.b_anchor_sec
+
+        prev_seg = segs[idx - 1] if idx > 0 else None
+        next_seg = segs[idx + 1] if idx + 1 < len(segs) else None
+
+        if segment.distance_sec < 0:
+            overlap_sec = -segment.distance_sec
+            overlap_samples = int(round(overlap_sec * sample_rate))
+            if prev_seg is not None and prev_seg.type == "clip":
+                tail_trim_samples[idx - 1] = max(
+                    tail_trim_samples[idx - 1], overlap_samples
+                )
+                a_anchor = max(0.0, prev_seg.duration - overlap_sec)
+            if next_seg is not None and next_seg.type == "clip":
+                head_trim_samples[idx + 1] = max(
+                    head_trim_samples[idx + 1], overlap_samples
+                )
+                b_anchor = 0.0
+        else:
+            if prev_seg is not None and prev_seg.type == "clip":
+                a_anchor = prev_seg.duration
+            if next_seg is not None and next_seg.type == "clip":
+                b_anchor = 0.0
+
+        anchor_overrides[idx] = (a_anchor, b_anchor)
+
+    tensors: List[torch.Tensor] = []
+    for index, segment in enumerate(segs):
         if segment.type == "clip":
             tensor = _load_clip_tensor(
                 segment.filename, segment.duration, sample_rate=sample_rate
             )
+            total = tensor.shape[-1]
+            start = min(head_trim_samples[index], total)
+            end = max(start, total - tail_trim_samples[index])
+            if end <= start:
+                logger.warning(
+                    "clip %s at index %d fully consumed by adjacent overlap; dropping",
+                    segment.filename,
+                    index,
+                )
+                continue
+            if start > 0 or end < total:
+                tensor = tensor[..., start:end]
         elif segment.type == "silence":
             tensor = _make_silence(segment.duration, sample_rate=sample_rate)
         elif segment.type == "interpolation":
-            tensor, seg_sr = _render_interpolation_tensor(segment.to_element())
+            element = segment.to_element()
+            if index in anchor_overrides:
+                a_anchor, b_anchor = anchor_overrides[index]
+                element = element.model_copy(
+                    update={"a_anchor_sec": a_anchor, "b_anchor_sec": b_anchor}
+                )
+            tensor, seg_sr = _render_interpolation_tensor(element)
             if seg_sr != sample_rate:
                 raise ValueError(
                     f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
@@ -395,18 +455,18 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
             raise ValueError(f"unknown segment type at index {index}")
 
         if tensor.shape[-1] > 0:
-            segments.append(tensor)
+            tensors.append(tensor)
 
-    if not segments:
+    if not tensors:
         raise ValueError("timeline produced no audio")
 
-    channels = max(seg.shape[0] for seg in segments)
+    channels = max(seg.shape[0] for seg in tensors)
     stitched = torch.cat(
-        [_match_channels(seg, channels) for seg in segments], dim=-1
+        [_match_channels(seg, channels) for seg in tensors], dim=-1
     )
     logger.info(
         "rendered timeline: %d segments, %d channels, %.3fs",
-        len(request.segments),
+        len(segs),
         channels,
         stitched.shape[-1] / sample_rate,
     )
