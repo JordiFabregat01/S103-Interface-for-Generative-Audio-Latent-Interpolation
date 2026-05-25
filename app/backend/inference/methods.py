@@ -1,13 +1,18 @@
 import math
 import logging
+import os
+import threading
 import time
 from functools import lru_cache
 from io import BytesIO
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Callable, List, Optional, Tuple
 
+import librosa
 import soundfile as sf
 import torch
-from inference.models import InterpolationElement
+from inference.models import InterpolationElement, RenderRequest
+from inference.embeddings import resolve_audio_file
 from inference.scapes_runtime import (
     CLAPWrapper,
     EncodecProcessor,
@@ -250,7 +255,13 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     return buffer.getvalue()
 
 
-def render_interpolation_audio(request: InterpolationElement) -> bytes:
+def _run_interpolation(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+):
+    """Drive ``interpolate_clips`` for an :class:`InterpolationElement` payload."""
     engine = get_inference_engine()
 
     src_a = get_or_encode(engine, request.audio1)
@@ -270,8 +281,8 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         nfe=request.nfe,
         decode_method=request.decode_method,
         context_mode_override=request.context_mode,
-        # cancel_event / progress not wired to the synchronous /interpolate
-        # endpoint yet; left as None until a streaming endpoint exists.
+        cancel_event=cancel_event,
+        progress=progress,
     )
     elapsed = time.time() - start_time
     logger.info(
@@ -282,5 +293,207 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
         result.context_mode,
         result.duration_sec,
     )
+    return result
+
+
+def _render_interpolation_tensor(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> Tuple[torch.Tensor, int]:
+    """Thin wrapper around ``_run_interpolation`` returning ``(audio[C, T], sample_rate)``.
+
+    Needed by ``render_timeline_audio``.
+    """
+    result = _run_interpolation(request, cancel_event=cancel_event, progress=progress)
+    audio = result.audio
+    if audio.dim() == 3:
+        audio = audio.squeeze(0)
+    if audio.dim() != 2:
+        raise ValueError(
+            f"Expected interpolation audio to be 2D [C, T], got shape {tuple(audio.shape)}"
+        )
+    return audio, result.sample_rate
+
+
+def render_interpolation_audio(request: InterpolationElement) -> bytes:
+    """Synchronous render path used by the legacy ``/interpolate`` endpoint."""
+    result = _run_interpolation(request)
     return _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+
+def _load_clip_tensor(
+    filename: str, duration_sec: float, *, sample_rate: int
+) -> torch.Tensor:
+    """Load a clip WAV as ``[C, T]`` at ``sample_rate``, trimmed/padded to ``duration_sec``."""
+    path = resolve_audio_file(filename)
+    data, file_sr = sf.read(str(path), always_2d=True, dtype="float32")  # [T, C]
+    audio = torch.from_numpy(data.T).contiguous()  # [C, T]
+
+    if file_sr != sample_rate:
+        resampled = librosa.resample(
+            audio.numpy(), orig_sr=file_sr, target_sr=sample_rate, axis=-1
+        )
+        audio = torch.from_numpy(resampled).contiguous()
+
+    target_len = int(round(duration_sec * sample_rate))
+    cur_len = audio.shape[-1]
+    if cur_len >= target_len:
+        return audio[..., :target_len]
+
+    logger.info(
+        "clip %s shorter than requested %.3fs (%d < %d samples); zero-padding",
+        filename,
+        duration_sec,
+        cur_len,
+        target_len,
+    )
+    pad = torch.zeros(audio.shape[0], target_len - cur_len, dtype=audio.dtype)
+    return torch.cat([audio, pad], dim=-1)
+
+
+def _make_silence(duration_sec: float, *, sample_rate: int) -> torch.Tensor:
+    """Mono silence ``[1, T]``; channel count is reconciled during stitching."""
+    n = int(round(duration_sec * sample_rate))
+    return torch.zeros(1, max(0, n), dtype=torch.float32)
+
+
+def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
+    """Coerce ``[C, T]`` to exactly ``channels`` rows (upmix mono, downmix to mono)."""
+    c = audio.shape[0]
+    if c == channels:
+        return audio
+    if c == 1:
+        return audio.expand(channels, -1).contiguous()
+    if channels == 1:
+        return audio.mean(dim=0, keepdim=True)
+    # Uncommon (e.g. 6ch -> 2ch): downmix to mono, then fan out.
+    return audio.mean(dim=0, keepdim=True).expand(channels, -1).contiguous()
+
+
+def render_timeline_audio(request: RenderRequest) -> bytes:
+    """Render a clip / silence / interpolation timeline to a 16-bit PCM WAV.
+
+    Interpolation anchors are pinned to the surrounding clips' cut edges so
+    every bridge opens at end-of-A and closes at start-of-B. Negative
+    ``distance_sec`` = overlap: neighbor clips are trimmed by ``|distance_sec|``
+    and ``a_anchor`` shifts back so the dynamic window lands on the cut.
+    """
+    engine = get_inference_engine()
+    sample_rate = engine.sr
+    segs = request.segments
+
+    head_trim_samples = [0] * len(segs)
+    tail_trim_samples = [0] * len(segs)
+    anchor_overrides: dict[int, Tuple[float, float]] = {}
+
+    for idx, segment in enumerate(segs):
+        if segment.type != "interpolation":
+            continue
+
+        a_anchor = segment.a_anchor_sec
+        b_anchor = segment.b_anchor_sec
+
+        prev_seg = segs[idx - 1] if idx > 0 else None
+        next_seg = segs[idx + 1] if idx + 1 < len(segs) else None
+
+        if segment.distance_sec < 0:
+            overlap_sec = -segment.distance_sec
+            overlap_samples = int(round(overlap_sec * sample_rate))
+            if prev_seg is not None and prev_seg.type == "clip":
+                tail_trim_samples[idx - 1] = max(
+                    tail_trim_samples[idx - 1], overlap_samples
+                )
+                a_anchor = max(0.0, prev_seg.duration - overlap_sec)
+            if next_seg is not None and next_seg.type == "clip":
+                head_trim_samples[idx + 1] = max(
+                    head_trim_samples[idx + 1], overlap_samples
+                )
+                b_anchor = 0.0
+        else:
+            if prev_seg is not None and prev_seg.type == "clip":
+                a_anchor = prev_seg.duration
+            if next_seg is not None and next_seg.type == "clip":
+                b_anchor = 0.0
+
+        anchor_overrides[idx] = (a_anchor, b_anchor)
+
+    tensors: List[torch.Tensor] = []
+    for index, segment in enumerate(segs):
+        if segment.type == "clip":
+            tensor = _load_clip_tensor(
+                segment.filename, segment.duration, sample_rate=sample_rate
+            )
+            total = tensor.shape[-1]
+            start = min(head_trim_samples[index], total)
+            end = max(start, total - tail_trim_samples[index])
+            if end <= start:
+                logger.warning(
+                    "clip %s at index %d fully consumed by adjacent overlap; dropping",
+                    segment.filename,
+                    index,
+                )
+                continue
+            if start > 0 or end < total:
+                tensor = tensor[..., start:end]
+        elif segment.type == "silence":
+            tensor = _make_silence(segment.duration, sample_rate=sample_rate)
+        elif segment.type == "interpolation":
+            element = segment.to_element()
+            if index in anchor_overrides:
+                a_anchor, b_anchor = anchor_overrides[index]
+                element = element.model_copy(
+                    update={"a_anchor_sec": a_anchor, "b_anchor_sec": b_anchor}
+                )
+            tensor, seg_sr = _render_interpolation_tensor(element)
+            if seg_sr != sample_rate:
+                raise ValueError(
+                    f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
+                )
+        else:  # pragma: no cover - guarded by the discriminated union
+            raise ValueError(f"unknown segment type at index {index}")
+
+        if tensor.shape[-1] > 0:
+            tensors.append(tensor)
+
+    if not tensors:
+        raise ValueError("timeline produced no audio")
+
+    channels = max(seg.shape[0] for seg in tensors)
+    stitched = torch.cat(
+        [_match_channels(seg, channels) for seg in tensors], dim=-1
+    )
+    logger.info(
+        "rendered timeline: %d segments, %d channels, %.3fs",
+        len(segs),
+        channels,
+        stitched.shape[-1] / sample_rate,
+    )
+    return _waveform_to_wav_bytes(stitched, sample_rate)
+
+
+def render_interpolation_to_file(
+    request: InterpolationElement,
+    output_path: Path,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """Render an interpolation and atomically persist the WAV to ``output_path``.
+
+    Returns the size in bytes of the written file. Used by the async ``/render``
+    job runner; supports cooperative cancellation through ``cancel_event`` and
+    progress reporting via ``progress(done, total)``.
+    """
+    result = _run_interpolation(
+        request, cancel_event=cancel_event, progress=progress
+    )
+    audio_bytes = _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp_path.write_bytes(audio_bytes)
+    os.replace(tmp_path, output_path)
+    return len(audio_bytes)
 
