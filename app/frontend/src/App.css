@@ -14,7 +14,7 @@
   flex-direction: column;
   overflow: hidden;
   padding: 20px 24px 16px;
-  gap: 16px;
+  gap: 22px;
 }
 
 .workspace-page h1 {
@@ -124,8 +124,7 @@
 /* ─── Library hint ───────────────────────────────────────────── */
 .library-hint {
   font-size: 11px;
-  color: var(--text-3);
-  margin: -6px 0 10px;
+  color: rgba(255,255,255,0.55);  margin: -6px 0 10px;
   letter-spacing: 0.02em;
 }
 
@@ -1333,7 +1332,7 @@ button {
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 200;
-  width: min(560px, calc(100vw - 40px));
+  width: min(700px, calc(100vw - 40px));
   max-height: calc(100vh - 80px);
   background: var(--surface-0);
   border: 1px solid var(--border-1);
@@ -1458,4 +1457,100 @@ kbd {
 .about-credits {
   font-size: 12px;
   color: var(--text-3);
+}
+
+.autosave-indicator {
+  position: fixed;
+  bottom: 18px;
+  right: 24px;
+
+  padding: 8px 14px;
+
+  border: 1px solid rgba(80, 255, 160, 0.18);
+  background: rgba(15, 28, 22, 0.92);
+
+  color: #67ffb3;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+
+  border-radius: 999px;
+
+  box-shadow:
+    0 0 18px rgba(80, 255, 160, 0.08);
+
+  backdrop-filter: blur(10px);
+
+  z-index: 1000;
+}
+
+
+.about-subtitle {
+  margin-top: -8px;
+  color: var(--text-3);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+
+.about-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-section h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.about-feature-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.about-feature-list li {
+  color: var(--text-2);
+}
+
+.about-tech-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.about-tech-title {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-1);
+}
+
+@media (max-width: 700px) {
+  .about-tech-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.about-tagline {
+  margin-bottom: 18px;
+}
+.about-subtitle {
+  color: var(--text-3);
+  margin-top: -8px;
+}
+
+.topbar-btn {
+  transition: all 0.18s ease;
+}
+
+.topbar-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
 }

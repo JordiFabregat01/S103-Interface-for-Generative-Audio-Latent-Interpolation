@@ -640,12 +640,100 @@ const selectedPath = selectedPathPoints
               <h3>About GALI</h3>
               <button className="close-preview-btn" onClick={() => setShowAbout(false)}>✕</button>
             </div>
+            
             <div className="info-modal-body about-body">
-              <p className="about-tagline"><span style={{ color: "#1E90FF" }}>GALI</span> — Generative Audio Latent Interpolation</p>
-              <p>GALI is a tool for exploring and blending ambient soundscapes using generative AI. Sounds are encoded into a shared latent space using the <strong>CLAP</strong> audio-language model, letting you search by text, find acoustically similar sounds, and interpolate between them to create seamless audio transitions.</p>
-              <p>Place sounds on the timeline, define where crossfades and interpolations happen, and render a fully blended audio composition all in the browser.</p>
+
+              <p className="about-tagline">
+                <span style={{ color: "#1E90FF" }}>GALI</span>
+                {" "}— Generative Audio Latent Interpolation
+              </p>
+
+              <p className="about-subtitle">
+                Explore ambient soundscapes through AI-powered latent space navigation.
+              </p>
+
+              <div className="about-section">
+                <h4>Tech Stack</h4>
+
+                <div className="about-tech-grid">
+
+                  <div>
+                    <p className="about-tech-title">Frontend</p>
+                    <ul className="about-feature-list">
+                      <li>React</li>
+                      <li>TypeScript</li>
+                      <li>Vite</li>
+                      <li>Web Audio API</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="about-tech-title">Backend</p>
+                    <ul className="about-feature-list">
+                      <li>Python</li>
+                      <li>Flask</li>
+                      <li>Audio generation pipeline</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="about-tech-title">AI / Audio</p>
+                    <ul className="about-feature-list">
+                      <li>CLAP embeddings</li>
+                      <li>Latent-space interpolation</li>
+                    </ul>
+                  </div>
+
+                </div>
+              </div>
               <div className="about-divider" />
-              <p className="about-credits">Built as part of the Music Technology Group at <strong>Universitat Pompeu Fabra</strong></p>
+
+              <div className="about-section">
+                <h4>What is GALI?</h4>
+
+                <p>
+                  GALI is an experimental browser-based interface for exploring,
+                  blending and interpolating environmental audio using generative AI.
+                </p>
+
+                <p>
+                  Sounds are embedded into a shared latent space using the
+                  <strong> CLAP </strong>
+                  audio-language model, enabling semantic search,
+                  similarity discovery and seamless interpolation between soundscapes.
+                </p>
+              </div>
+
+              <div className="about-section">
+                <h4>Core Features</h4>
+
+                <ul className="about-feature-list">
+                  <li>AI-based sound similarity search</li>
+                  <li>Interactive latent space exploration</li>
+                  <li>Timeline-based audio composition</li>
+                  <li>Crossfades & generative interpolations</li>
+                  <li>Browser-native audio rendering workflow</li>
+                  <li>Local workspace auto-save</li>
+                </ul>
+              </div>
+
+              <div className="about-section">
+                <h4>Workflow</h4>
+
+                <p>
+                  Drag sounds into the timeline, create transitions between clips,
+                  explore neighbouring sounds in latent space, and render fully blended
+                  ambient compositions directly in the browser.
+                </p>
+              </div>
+
+              <div className="about-divider" />
+
+              <p className="about-credits">
+                Built as part of the Music Technology Group at
+                <strong> Universitat Pompeu Fabra</strong>
+              </p>
+
             </div>
           </div>
         </>
@@ -1148,6 +1236,10 @@ const selectedPath = selectedPathPoints
             })}
           </div>
         </div>
+      </div>
+      
+      <div className="autosave-indicator">
+        ● Auto-saved locally
       </div>
     </div>
   );
