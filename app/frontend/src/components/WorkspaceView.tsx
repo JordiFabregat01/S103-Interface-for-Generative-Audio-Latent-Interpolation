@@ -27,6 +27,7 @@ const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
 const SNAP_THRESHOLD_PX = 12;
+const STORAGE_KEY = "gali-workspace";
 const LOADING_VERBS = ["working", "cooking", "interpolating", "generating"] as const;
 
 function snapEdge(value: number, targets: number[], threshold: number): { snapped: number; dist: number } {
@@ -80,6 +81,7 @@ export default function WorkspaceView() {
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
+  //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
   const [showHowToUse, setShowHowToUse] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
@@ -257,10 +259,52 @@ export default function WorkspaceView() {
   }, [interpLoading]);
 
   useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved);
+      console.log("LOADED", parsed);
+
+
+    if (parsed.timelineClips) {
+      setTimelineClips(parsed.timelineClips);
+    }
+
+    if (parsed.quality) {
+      setQuality(parsed.quality);
+    }
+   if (parsed.interpolatedGaps) {
+    setInterpolatedGaps(new Set(parsed.interpolatedGaps));
+  }
+
+  } catch (err) {
+    console.error("Failed to load workspace:", err);
+  }
+}, []);
+
+ useEffect(() => {
+  if (timelineClips.length === 0) return;
+
+  const data = {
+    timelineClips,
+    quality,
+    interpolatedGaps: [...interpolatedGaps],
+
+  };
+
+  console.log("Saving workspace");
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}, [timelineClips, quality, interpolatedGaps]);
+
+  useEffect(() => {
     getSounds()
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
+
 const getSoundColor = (name: string, filename = ""): { color: string; glow: string } => {
   const lower = `${name} ${filename}`.toLowerCase();
   if (lower.includes("wind") || lower.includes("breeze"))
@@ -787,7 +831,7 @@ const selectedPath = selectedPathPoints
                 })}
               </svg>
 
-{interpUrl && selectedPathPoints.length >= 2 && (
+{selectedPathPoints.length >= 2 && (
                 <svg
                   className="interpolation-path-svg"
                   viewBox="0 0 100 100"
@@ -811,6 +855,7 @@ const selectedPath = selectedPathPoints
                     points={selectedPath}
                     markerEnd="url(#arrow-head)"
                     onClick={() => {
+                      if (!interpUrl) return;
                       interpPlayer.seek(0);
                       interpPlayer.play(interpUrl);
                     }}
