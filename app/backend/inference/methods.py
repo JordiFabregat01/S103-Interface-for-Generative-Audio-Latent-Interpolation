@@ -35,6 +35,9 @@ from inference.constants import (
 
 logger = logging.getLogger(__name__)
 
+# Crossfade at clip <-> generative-bridge boundaries to avoid hard switches.
+STITCH_CROSSFADE_SEC = 0.05
+
 
 def greet() -> str:
     return "Hello from SCAPES Interface!"
@@ -359,6 +362,66 @@ def _make_silence(duration_sec: float, *, sample_rate: int) -> torch.Tensor:
     return torch.zeros(1, max(0, n), dtype=torch.float32)
 
 
+def _crossfade_append(
+    acc: torch.Tensor,
+    nxt: torch.Tensor,
+    fade_samples: int,
+) -> torch.Tensor:
+    """Append ``nxt`` to ``acc`` with a linear crossfade over ``fade_samples``."""
+    if acc.numel() == 0:
+        return nxt
+    if nxt.numel() == 0:
+        return acc
+    fade_samples = min(fade_samples, acc.shape[-1], nxt.shape[-1])
+    if fade_samples <= 0:
+        return torch.cat([acc, nxt], dim=-1)
+
+    fade_out = torch.linspace(1.0, 0.0, fade_samples, dtype=acc.dtype).view(1, -1)
+    fade_in = torch.linspace(0.0, 1.0, fade_samples, dtype=nxt.dtype).view(1, -1)
+    tail = acc[..., -fade_samples:]
+    head = nxt[..., :fade_samples]
+    overlap = tail * fade_out + head * fade_in
+    return torch.cat([acc[..., :-fade_samples], overlap, nxt[..., fade_samples:]], dim=-1)
+
+
+def _stitch_segments(
+    segments: List[torch.Tensor],
+    *,
+    sample_rate: int,
+    crossfade_sec: float = STITCH_CROSSFADE_SEC,
+) -> torch.Tensor:
+    """Concatenate timeline segments with short crossfades between each pair."""
+    if not segments:
+        raise ValueError("no segments to stitch")
+    fade_samples = int(round(crossfade_sec * sample_rate))
+    out = segments[0]
+    for seg in segments[1:]:
+        out = _crossfade_append(out, seg, fade_samples)
+    return out
+
+
+def _trim_bridge_to_overlap(
+    tensor: torch.Tensor,
+    overlap_sec: float,
+    *,
+    sample_rate: int,
+) -> torch.Tensor:
+    """Trim generative bridge audio to the visual overlap length (center crop if longer)."""
+    target_len = int(round(overlap_sec * sample_rate))
+    cur_len = tensor.shape[-1]
+    if cur_len <= target_len:
+        return tensor
+    excess = cur_len - target_len
+    start = excess // 2
+    end = start + target_len
+    logger.info(
+        "trimming interpolation bridge from %.3fs to %.3fs for overlap alignment",
+        cur_len / sample_rate,
+        overlap_sec,
+    )
+    return tensor[..., start:end]
+
+
 def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
     """Coerce ``[C, T]`` to exactly ``channels`` rows (upmix mono, downmix to mono)."""
     c = audio.shape[0]
@@ -451,6 +514,12 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
                 raise ValueError(
                     f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
                 )
+            if segment.distance_sec < 0:
+                tensor = _trim_bridge_to_overlap(
+                    tensor,
+                    -segment.distance_sec,
+                    sample_rate=sample_rate,
+                )
         else:  # pragma: no cover - guarded by the discriminated union
             raise ValueError(f"unknown segment type at index {index}")
 
@@ -461,9 +530,8 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
         raise ValueError("timeline produced no audio")
 
     channels = max(seg.shape[0] for seg in tensors)
-    stitched = torch.cat(
-        [_match_channels(seg, channels) for seg in tensors], dim=-1
-    )
+    matched = [_match_channels(seg, channels) for seg in tensors]
+    stitched = _stitch_segments(matched, sample_rate=sample_rate)
     logger.info(
         "rendered timeline: %d segments, %d channels, %.3fs",
         len(segs),

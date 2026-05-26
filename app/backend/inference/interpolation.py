@@ -8,6 +8,7 @@ never modified from here.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Optional
@@ -33,6 +34,9 @@ _CONCRETE_CONTEXT_MODES: tuple[str, ...] = (
     "static_at_anchor",
     "dynamic",
 )
+
+# Overlap / dynamic bridges need enough ODE steps for an audible morph.
+MIN_TIMELINE_SIZE_DYNAMIC = 5
 
 
 @dataclass
@@ -91,8 +95,52 @@ def _hop_seconds(engine: FlowInference) -> float:
     return engine.hop_samples / engine.sr
 
 
+def _segment_seconds(engine: FlowInference) -> float:
+    """Length of one decoded atom window (matches ``decode_timeline`` geometry)."""
+    return engine.segment_samples / engine.sr
+
+
+def _decoded_duration_sec(engine: FlowInference, timeline_size: int) -> float:
+    """Audio length SCAPES emits for ``timeline_size`` OLA steps."""
+    if timeline_size < 1:
+        return 0.0
+    hop_sec = _hop_seconds(engine)
+    segment_sec = _segment_seconds(engine)
+    return (timeline_size - 1) * hop_sec + segment_sec
+
+
+def _timeline_size_for_duration(engine: FlowInference, duration_sec: float) -> int:
+    """Pick ``timeline_size`` so decoded audio is at least ``duration_sec``.
+
+    SCAPES decodes with ``(N-1)*hop_samples + segment_samples``, not ``N*hop``.
+    """
+    hop_sec = _hop_seconds(engine)
+    segment_sec = _segment_seconds(engine)
+    if duration_sec <= segment_sec:
+        return 1
+    hops_needed = (float(duration_sec) - segment_sec) / hop_sec
+    return max(1, int(math.ceil(hops_needed)) + 1)
+
+
 def _seconds_to_atoms(sec: float, hop_sec: float) -> int:
     return int(round(float(sec) / hop_sec))
+
+
+def validate_overlap_anchors(
+    distance_sec: float,
+    a_anchor_sec: float,
+    b_anchor_sec: float,
+    *,
+    allow_zero_anchors: bool = False,
+) -> None:
+    """Overlap must not use dynamic mode with both anchors at 0 unless timeline sets them."""
+    if distance_sec >= 0 or allow_zero_anchors:
+        return
+    if a_anchor_sec == 0.0 and b_anchor_sec == 0.0:
+        raise ValueError(
+            "overlap (distance_sec < 0) requires non-default anchors "
+            "(a_anchor_sec / b_anchor_sec) or a full /render timeline with flanking clips"
+        )
 
 
 def _clamp_anchor_atom(anchor_sec: float, hop_sec: float, num_contexts: int) -> int:
@@ -124,33 +172,51 @@ def _dynamic_window(
     *,
     source_id: str,
 ) -> list[Tensor]:
-    """Slice `contexts[anchor:anchor+N]`, padding with the last context if needed."""
+    """Slice ``contexts[anchor:anchor+N]`` without tail padding (caller caps ``N``)."""
     if len(contexts) == 0:
         raise ValueError(f"source {source_id!r} has no contexts")
 
-    end = anchor_atom + timeline_size
     if anchor_atom >= len(contexts):
-        logger.warning(
-            "dynamic window for source %r starts past last context "
-            "(anchor_atom=%d, num_contexts=%d); padding entirely with last context",
-            source_id,
-            anchor_atom,
-            len(contexts),
+        raise ValueError(
+            f"dynamic window for source {source_id!r} starts past last context "
+            f"(anchor_atom={anchor_atom}, num_contexts={len(contexts)})"
         )
-        return [contexts[-1]] * timeline_size
 
+    end = anchor_atom + timeline_size
     window = list(contexts[anchor_atom:end])
     if len(window) < timeline_size:
-        missing = timeline_size - len(window)
-        logger.warning(
-            "dynamic window for source %r is %d contexts short of timeline_size=%d; "
-            "padding with last available context",
-            source_id,
-            missing,
-            timeline_size,
+        raise ValueError(
+            f"dynamic window for source {source_id!r} needs {timeline_size} contexts "
+            f"from anchor {anchor_atom}, but only {len(window)} are available "
+            f"(num_contexts={len(contexts)})"
         )
-        window.extend([contexts[-1]] * missing)
     return window
+
+
+def _cap_timeline_for_dynamic(
+    timeline_size: int,
+    contexts_a: list[Tensor],
+    contexts_b: list[Tensor],
+    a_anchor_atom: int,
+    b_anchor_atom: int,
+) -> int:
+    """Limit ``timeline_size`` to contexts available after each anchor."""
+    avail_a = len(contexts_a) - a_anchor_atom
+    avail_b = len(contexts_b) - b_anchor_atom
+    if avail_a <= 0 or avail_b <= 0:
+        raise ValueError(
+            f"dynamic interpolation: no contexts after anchors "
+            f"(a_anchor_atom={a_anchor_atom}, len_a={len(contexts_a)}, "
+            f"b_anchor_atom={b_anchor_atom}, len_b={len(contexts_b)})"
+        )
+    capped = min(timeline_size, avail_a, avail_b)
+    if capped < timeline_size:
+        logger.warning(
+            "capping timeline_size from %d to %d (contexts available after anchors)",
+            timeline_size,
+            capped,
+        )
+    return max(1, capped)
 
 
 def _build_alpha_curve(timeline_size: int, stay_time: int, stickyness: float) -> Tensor:
@@ -198,19 +264,17 @@ def interpolate(
         raise ValueError(f"duration_sec must be > 0 (got {request.duration_sec})")
 
     hop_sec = _hop_seconds(engine)
-    timeline_size = max(1, _seconds_to_atoms(request.duration_sec, hop_sec))
-    stay_time = _seconds_to_atoms(request.stay_time_sec, hop_sec)
-
     mode = _resolve_context_mode(request.context_mode)
+
+    timeline_size = _timeline_size_for_duration(engine, request.duration_sec)
+    stay_time = _seconds_to_atoms(request.stay_time_sec, hop_sec)
+    if 2 * stay_time >= timeline_size:
+        stay_time = max(0, (timeline_size - 1) // 2)
 
     contexts_a = request.source_a.contexts
     contexts_b = request.source_b.contexts
     if not contexts_a or not contexts_b:
         raise ValueError("both sources must have at least one context embedding")
-
-    alpha = _build_alpha_curve(timeline_size, stay_time, request.stickyness).to(
-        engine.device
-    )
 
     if mode == "static_first":
         c_a_window = [contexts_a[0]] * timeline_size
@@ -223,12 +287,23 @@ def interpolate(
     else:  # "dynamic"
         a_anchor_atom = max(0, _seconds_to_atoms(request.a_anchor_sec, hop_sec))
         b_anchor_atom = max(0, _seconds_to_atoms(request.b_anchor_sec, hop_sec))
+        timeline_size = _cap_timeline_for_dynamic(
+            max(timeline_size, MIN_TIMELINE_SIZE_DYNAMIC),
+            contexts_a,
+            contexts_b,
+            a_anchor_atom,
+            b_anchor_atom,
+        )
         c_a_window = _dynamic_window(
             contexts_a, a_anchor_atom, timeline_size, source_id=request.source_a.source_id
         )
         c_b_window = _dynamic_window(
             contexts_b, b_anchor_atom, timeline_size, source_id=request.source_b.source_id
         )
+
+    alpha = _build_alpha_curve(timeline_size, stay_time, request.stickyness).to(
+        engine.device
+    )
 
     contexts: list[Tensor] = []
     for t in range(timeline_size):
@@ -264,13 +339,18 @@ def interpolate(
         if step.get("atom_generated") is not None
     ]
 
-    actual_duration = timeline_size * hop_sec
+    if audio.dim() == 2:
+        actual_duration = audio.shape[-1] / engine.sr
+    else:
+        actual_duration = _decoded_duration_sec(engine, timeline_size)
 
     logger.info(
-        "interpolate: timeline_size=%d, context_mode=%s, nfe=%d, duration_sec=%.3f",
+        "interpolate: timeline_size=%d, context_mode=%s, nfe=%d, "
+        "requested_duration_sec=%.3f, decoded_duration_sec=%.3f",
         timeline_size,
         mode,
         request.nfe,
+        request.duration_sec,
         actual_duration,
     )
 
@@ -330,6 +410,13 @@ def request_from_clip_geometry(
         raise ValueError(
             f"invalid context_mode_override: {context_mode_override!r}"
         )
+
+    validate_overlap_anchors(
+        distance_sec,
+        a_anchor_sec,
+        b_anchor_sec,
+        allow_zero_anchors=False,
+    )
 
     return InterpolationRequest(
         source_a=source_a,
