@@ -1307,11 +1307,21 @@ button {
 }
 
 .interpolation-path.ready {
-  stroke: var(--accent);
-  opacity: 0.85;
+  stroke: rgba(255, 255, 255, 0.8);
+  stroke-width: 0.35;
   stroke-dasharray: none;
   cursor: pointer;
   pointer-events: stroke;
+  transition:
+    stroke-width 0.15s ease,
+    opacity 0.15s ease,
+    filter 0.15s ease;
+}
+
+.interpolation-path.ready:hover {
+  stroke-width: 0.65;
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(255,255,255,0.4));
 }
 
 .arrow-head {
