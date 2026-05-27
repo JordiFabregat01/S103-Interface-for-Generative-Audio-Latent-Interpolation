@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
+from inference.constants import CACHE_DIR
 from inference.methods import (
     greet,
     get_inference_engine,
@@ -10,6 +11,8 @@ from inference.methods import (
 )
 from inference.models import InterpolationElement, InterpolationSegment, RenderRequest
 from inference.embeddings import get_sound_layout, resolve_audio_file
+from inference.clap_search import search_by_text, search_similar
+from jobs import JobState, JobStore
 import logging
 import traceback
 
@@ -28,6 +31,10 @@ app.add_middleware(
 )
 
 
+JOBS_DIR = CACHE_DIR / "jobs"
+job_store = JobStore(jobs_dir=JOBS_DIR, ttl_seconds=30 * 60.0)
+
+
 @app.on_event("startup")
 def warm_inference_engine() -> None:
     logger.info("STARTING STARTUP EVENT")
@@ -38,7 +45,14 @@ def warm_inference_engine() -> None:
     except Exception as exc:
         logger.critical(f"ERROR during SCAPES inference engine initialization: {exc}")
         logger.critical(traceback.format_exc())
+    job_store.start_cleanup(interval_seconds=60.0)
     logger.info("FINISHED STARTUP EVENT")
+
+
+@app.on_event("shutdown")
+def stop_jobs() -> None:
+    job_store.stop_cleanup()
+
 
 @app.get("/")
 def root():
@@ -57,6 +71,77 @@ def list_sounds(refresh: bool = False):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Failed to compute sound layout") from exc
     return [point.__dict__ for point in layout]
+
+
+@app.get("/sounds/search")
+def search_sounds(q: str, k: int = 8):
+    """Rank library sounds by CLAP cosine similarity to a free-form text query.
+
+    Declared **before** ``/sounds/{filename}`` so FastAPI doesn't treat the
+    literal segment ``search`` as a filename.
+    """
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="query 'q' must be non-empty")
+    if not 1 <= k <= 50:
+        raise HTTPException(status_code=400, detail="k must be in [1, 50]")
+    try:
+        hits = search_by_text(q, k=k)
+    except FileNotFoundError as exc:
+        logger.warning(f"search cache missing: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"text search failed for query={q!r}: {exc}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="text search failed") from exc
+
+    return [
+        {
+            "id": hit.point.id,
+            "name": hit.point.name,
+            "filename": hit.point.filename,
+            "x": hit.point.x,
+            "y": hit.point.y,
+            "score": hit.score,
+        }
+        for hit in hits
+    ]
+
+
+@app.get("/sounds/{filename}/similar")
+def similar_sounds(filename: str, k: int = 8):
+    """Rank library sounds by CLAP cosine similarity to ``filename``.
+
+    The query sound itself is excluded from the response. Declared **before**
+    ``/sounds/{filename}`` so the more-specific ``/similar`` suffix wins the
+    path match.
+    """
+    if not filename.strip():
+        raise HTTPException(status_code=400, detail="filename must be non-empty")
+    if not 1 <= k <= 50:
+        raise HTTPException(status_code=400, detail="k must be in [1, 50]")
+    try:
+        hits = search_similar(filename, k=k)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        logger.warning(f"search cache missing: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"similar search failed for filename={filename!r}: {exc}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="similar search failed") from exc
+
+    return [
+        {
+            "id": hit.point.id,
+            "name": hit.point.name,
+            "filename": hit.point.filename,
+            "x": hit.point.x,
+            "y": hit.point.y,
+            "score": hit.score,
+        }
+        for hit in hits
+    ]
 
 
 @app.get("/sounds/{filename}")

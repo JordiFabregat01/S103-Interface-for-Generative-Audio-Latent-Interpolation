@@ -36,7 +36,7 @@ modules/
 # =========================
 # Data / audio (your project specific)
 # =========================
-*.wav
+**/assets/*.wav
 *.mp3
 *.flac
 datasets/
@@ -50,6 +50,12 @@ app/backend/inference/cache/
 # Jupyter Notebook noise
 # =========================
 .ipynb_checkpoints/
+
+# =========================
+# Frontend build / dev caches
+# =========================
+.vite/
+app/frontend/.vite/
 
 # =========================
 # OS files

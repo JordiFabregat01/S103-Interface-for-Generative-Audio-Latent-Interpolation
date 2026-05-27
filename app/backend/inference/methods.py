@@ -1,9 +1,12 @@
 import math
 import logging
+import os
+import threading
 import time
 from functools import lru_cache
 from io import BytesIO
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import Callable, List, Optional, Tuple
 
 import librosa
 import soundfile as sf
@@ -252,8 +255,13 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     return buffer.getvalue()
 
 
-def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.Tensor, int]:
-    """Run the interpolation pipeline and return ``(audio[C, T], sample_rate)``."""
+def _run_interpolation(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+):
+    """Drive ``interpolate_clips`` for an :class:`InterpolationElement` payload."""
     engine = get_inference_engine()
 
     src_a = get_or_encode(engine, request.audio1)
@@ -273,8 +281,8 @@ def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.T
         nfe=request.nfe,
         decode_method=request.decode_method,
         context_mode_override=request.context_mode,
-        # cancel_event / progress not wired to the synchronous endpoints yet;
-        # left as None until a streaming endpoint exists.
+        cancel_event=cancel_event,
+        progress=progress,
     )
     elapsed = time.time() - start_time
     logger.info(
@@ -285,7 +293,20 @@ def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.T
         result.context_mode,
         result.duration_sec,
     )
+    return result
 
+
+def _render_interpolation_tensor(
+    request: InterpolationElement,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> Tuple[torch.Tensor, int]:
+    """Thin wrapper around ``_run_interpolation`` returning ``(audio[C, T], sample_rate)``.
+
+    Needed by ``render_timeline_audio``.
+    """
+    result = _run_interpolation(request, cancel_event=cancel_event, progress=progress)
     audio = result.audio
     if audio.dim() == 3:
         audio = audio.squeeze(0)
@@ -297,8 +318,9 @@ def _render_interpolation_tensor(request: InterpolationElement) -> Tuple[torch.T
 
 
 def render_interpolation_audio(request: InterpolationElement) -> bytes:
-    audio, sample_rate = _render_interpolation_tensor(request)
-    return _waveform_to_wav_bytes(audio, sample_rate)
+    """Synchronous render path used by the legacy ``/interpolate`` endpoint."""
+    result = _run_interpolation(request)
+    return _waveform_to_wav_bytes(result.audio, result.sample_rate)
 
 
 def _load_clip_tensor(
@@ -421,6 +443,18 @@ def render_timeline_audio(
             tensor = _load_clip_tensor(
                 segment.filename, segment.duration, sample_rate=sample_rate
             )
+            total = tensor.shape[-1]
+            start = min(head_trim_samples[index], total)
+            end = max(start, total - tail_trim_samples[index])
+            if end <= start:
+                logger.warning(
+                    "clip %s at index %d fully consumed by adjacent overlap; dropping",
+                    segment.filename,
+                    index,
+                )
+                continue
+            if start > 0 or end < total:
+                tensor = tensor[..., start:end]
         elif segment.type == "silence":
             tensor = _make_silence(segment.duration, sample_rate=sample_rate)
         elif segment.type == "interpolation":
@@ -437,12 +471,6 @@ def render_timeline_audio(
                 raise ValueError(
                     f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
                 )
-            if segment.distance_sec < 0:
-                tensor = _trim_bridge_to_overlap(
-                    tensor,
-                    -segment.distance_sec,
-                    sample_rate=sample_rate,
-                )
             interp_done += 1
             if progress is not None:
                 progress(interp_done, interp_total)
@@ -450,18 +478,18 @@ def render_timeline_audio(
             raise ValueError(f"unknown segment type at index {index}")
 
         if tensor.shape[-1] > 0:
-            segments.append(tensor)
+            tensors.append(tensor)
 
-    if not segments:
+    if not tensors:
         raise ValueError("timeline produced no audio")
 
-    channels = max(seg.shape[0] for seg in segments)
+    channels = max(seg.shape[0] for seg in tensors)
     stitched = torch.cat(
-        [_match_channels(seg, channels) for seg in segments], dim=-1
+        [_match_channels(seg, channels) for seg in tensors], dim=-1
     )
     logger.info(
         "rendered timeline: %d segments, %d channels, %.3fs",
-        len(request.segments),
+        len(segs),
         channels,
         stitched.shape[-1] / sample_rate,
     )
