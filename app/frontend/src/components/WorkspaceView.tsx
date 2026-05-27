@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, render, type Segment, type SoundPoint } from "../api";
+import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 // start and duration are stored in seconds; pixels = value * PX_PER_SEC
@@ -178,7 +178,36 @@ export default function WorkspaceView() {
     }
   };
 
-  const [interpLoading, setInterpLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SoundHit[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [similarTo, setSimilarTo] = useState<SoundPoint | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sound: SoundPoint } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismiss = () => setContextMenu(null);
+    document.addEventListener("mousedown", dismiss);
+    return () => document.removeEventListener("mousedown", dismiss);
+  }, [contextMenu]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) { setSearchResults(null); setSimilarTo(null); return; }
+    const timer = setTimeout(() => {
+      setSearchLoading(true);
+      searchSounds(q)
+        .then(setSearchResults)
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const [renderStatus, setRenderStatus] = useState<"queued" | "running" | null>(null);
+  const [renderProgress, setRenderProgress] = useState<{ done: number; total: number } | null>(null);
+  const [renderJobId, setRenderJobId] = useState<string | null>(null);
+  const interpLoading = renderStatus !== null;
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
@@ -308,7 +337,9 @@ const moveClip = (id: number, newStartSec: number) => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
     if (sorted.length < 2) return;
 
-    setInterpLoading(true);
+    setRenderStatus("queued");
+    setRenderProgress(null);
+    setRenderJobId(null);
     setInterpError(null);
     if (interpUrlRef.current) {
       URL.revokeObjectURL(interpUrlRef.current);
@@ -316,13 +347,32 @@ const moveClip = (id: number, newStartSec: number) => {
     }
     setInterpUrl(null);
     try {
-      const url = await render(buildTimelineSegments(sorted));
+      const url = await render(buildTimelineSegments(sorted), {
+        onJobId: (id) => setRenderJobId(id),
+        onProgress: (snap) => {
+          if (snap.status === "queued" || snap.status === "running") {
+            setRenderStatus(snap.status);
+            if (snap.progress) setRenderProgress(snap.progress);
+          }
+        },
+      });
       interpUrlRef.current = url;
       setInterpUrl(url);
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Render failed");
     } finally {
-      setInterpLoading(false);
+      setRenderStatus(null);
+      setRenderProgress(null);
+      setRenderJobId(null);
+    }
+  };
+
+  const cancelRunningRender = async () => {
+    if (!renderJobId) return;
+    try {
+      await cancelRender(renderJobId);
+    } catch {
+      /* polling loop will surface the resulting error */
     }
   };
 
@@ -591,20 +641,52 @@ const selectedPath = selectedPathPoints
             )}
           </div>
           <div className="timeline-header-right">
-            <button
-              className="interpolate-btn"
-              onClick={runInterpolation}
-              disabled={!canInterpolate || interpLoading}
-            >
-              {interpLoading ? (
-                <>
-                  {LOADING_VERBS[loadingVerbIdx]}
-                  <span className="loading-dots" aria-hidden="true" />
-                </>
-              ) : (
-                "Interpolate"
+            <div className="render-control">
+              <button
+                className={`interpolate-btn${interpLoading ? " loading" : ""}`}
+                onClick={runInterpolation}
+                disabled={!canInterpolate || interpLoading}
+              >
+                {renderStatus === "queued" && (
+                  <>
+                    Queued
+                    <span className="loading-dots" aria-hidden="true" />
+                  </>
+                )}
+                {renderStatus === "running" && (
+                  renderProgress && renderProgress.total > 0 ? (
+                    <>
+                      Rendering {renderProgress.done}/{renderProgress.total}
+                      <span className="loading-dots" aria-hidden="true" />
+                    </>
+                  ) : (
+                    <>
+                      {LOADING_VERBS[loadingVerbIdx]}
+                      <span className="loading-dots" aria-hidden="true" />
+                    </>
+                  )
+                )}
+                {!renderStatus && "Interpolate"}
+                {renderStatus === "running" && renderProgress && renderProgress.total > 0 && (
+                  <span
+                    className="interpolate-btn-fill"
+                    style={{
+                      width: `${(renderProgress.done / Math.max(1, renderProgress.total)) * 100}%`,
+                    }}
+                  />
+                )}
+              </button>
+              {interpLoading && renderJobId && (
+                <button
+                  type="button"
+                  className="render-cancel-btn"
+                  onClick={cancelRunningRender}
+                  title="Cancel render"
+                >
+                  Cancel
+                </button>
               )}
-            </button>
+            </div>
           </div>
         </div>
 
