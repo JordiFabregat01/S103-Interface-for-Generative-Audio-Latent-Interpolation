@@ -325,7 +325,7 @@ const getEmoji = (name: string, filename = "") => {
 
   // HUMAN
   if (lower.includes("snowsteps")) return "🥾❄️";
-  if (lower.includes("footsteps")) return "👣";
+if (lower.includes("footsteps")) return "/Footsteps_icon.png";
   if (lower.includes("keyboard")) return "⌨️";
 
   return "🎵";
@@ -456,7 +456,7 @@ const selectedPathPoints = sortedClips
   .filter(Boolean);
 
 const selectedPath = selectedPathPoints
-  .map((point) => `${point!.px},${point!.py}`)
+  .map((point) => `${point!.px},${point!.py-2}`)
   .join(" ");
 
   const deleteClip = (id: number) => {
