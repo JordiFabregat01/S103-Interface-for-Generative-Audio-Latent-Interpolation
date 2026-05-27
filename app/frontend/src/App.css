@@ -947,8 +947,17 @@
   border-radius: 5px;
 }
 
+/* ─── Render Control (Interpolate button + Cancel) ──────────── */
+.render-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ─── Interpolate Button ─────────────────────────────────────── */
 .interpolate-btn {
+  position: relative;
+  overflow: hidden;
   padding: 8px 20px;
   margin: 0;
   min-width: 180px;
@@ -963,6 +972,37 @@
   text-transform: uppercase;
   cursor: pointer;
   transition: background 0.15s, box-shadow 0.15s;
+}
+
+.interpolate-btn-fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.5);
+  transition: width 200ms linear;
+  pointer-events: none;
+}
+
+.render-cancel-btn {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--surface-3);
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.render-cancel-btn:hover {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.6);
+  color: #f85149;
 }
 
 .interpolate-btn:hover:not(:disabled) {

@@ -372,13 +372,23 @@ def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
     return audio.mean(dim=0, keepdim=True).expand(channels, -1).contiguous()
 
 
-def render_timeline_audio(request: RenderRequest) -> bytes:
+def render_timeline_audio(
+    request: RenderRequest,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> bytes:
     """Render a clip / silence / interpolation timeline to a 16-bit PCM WAV.
 
     Interpolation anchors are pinned to the surrounding clips' cut edges so
     every bridge opens at end-of-A and closes at start-of-B. Negative
     ``distance_sec`` = overlap: neighbor clips are trimmed by ``|distance_sec|``
     and ``a_anchor`` shifts back so the dynamic window lands on the cut.
+
+    ``progress(done, total)`` ticks over the number of interpolation segments
+    (clip / silence segments are effectively free and don't move the bar).
+    ``cancel_event``, if set between segments, raises ``RuntimeError`` so the
+    job worker can mark the job ``cancelled``.
     """
     engine = get_inference_engine()
     sample_rate = engine.sr
@@ -419,8 +429,16 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
 
         anchor_overrides[idx] = (a_anchor, b_anchor)
 
+    interp_total = sum(1 for s in segs if s.type == "interpolation")
+    interp_done = 0
+    if progress is not None:
+        progress(interp_done, interp_total)
+
     tensors: List[torch.Tensor] = []
     for index, segment in enumerate(segs):
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("cancelled by client")
+
         if segment.type == "clip":
             tensor = _load_clip_tensor(
                 segment.filename, segment.duration, sample_rate=sample_rate
@@ -446,11 +464,16 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
                 element = element.model_copy(
                     update={"a_anchor_sec": a_anchor, "b_anchor_sec": b_anchor}
                 )
-            tensor, seg_sr = _render_interpolation_tensor(element)
+            tensor, seg_sr = _render_interpolation_tensor(
+                element, cancel_event=cancel_event
+            )
             if seg_sr != sample_rate:
                 raise ValueError(
                     f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
                 )
+            interp_done += 1
+            if progress is not None:
+                progress(interp_done, interp_total)
         else:  # pragma: no cover - guarded by the discriminated union
             raise ValueError(f"unknown segment type at index {index}")
 
@@ -490,6 +513,30 @@ def render_interpolation_to_file(
         request, cancel_event=cancel_event, progress=progress
     )
     audio_bytes = _waveform_to_wav_bytes(result.audio, result.sample_rate)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp_path.write_bytes(audio_bytes)
+    os.replace(tmp_path, output_path)
+    return len(audio_bytes)
+
+
+def render_timeline_to_file(
+    request: RenderRequest,
+    output_path: Path,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """Render a timeline and atomically persist the WAV to ``output_path``.
+
+    Runner-compatible companion to :func:`render_timeline_audio`: forwards
+    the job ``cancel_event`` / ``progress`` callback so the bar advances
+    per interpolation segment and cancel is honored between segments.
+    """
+    audio_bytes = render_timeline_audio(
+        request, cancel_event=cancel_event, progress=progress
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
