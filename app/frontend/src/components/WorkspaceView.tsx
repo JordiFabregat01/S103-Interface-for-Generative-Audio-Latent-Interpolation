@@ -527,6 +527,26 @@ const selectedPath = selectedPathPoints
   .map((point) => `${point!.px},${point!.py-2}`)
   .join(" ");
 
+  const loadExampleTimeline = () => {
+    if (sounds.length < 2) return;
+
+    const pick = (keywords: string[]) =>
+      sounds.find(s =>
+        keywords.some(k => (s.name + " " + s.filename).toLowerCase().includes(k))
+      );
+
+    const a = pick(["camp_fire", "campfire", "fire"]) ?? sounds[0];
+    const b = pick(["keyboard"]) ?? sounds.find(s => s.filename !== a.filename) ?? sounds[1];
+
+    const t = Date.now();
+    setTimelineClips([
+      { id: t,     name: a.name, filename: a.filename, start: 0, duration: 5 },
+      { id: t + 1, name: b.name, filename: b.filename, start: 9, duration: 5 },
+    ]);
+    setInterpUrl("");
+    setShowHowToUse(false);
+  };
+
   const deleteClip = (id: number) => {
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
     setInterpUrl("");
@@ -650,6 +670,46 @@ const selectedPath = selectedPathPoints
               </div>
               <div className="how-to-tip">
                 <strong>Tip:</strong> Use <kbd>Ctrl</kbd> + scroll on the timeline to zoom in or out. The zoom level shows as a percentage next to the −/+ buttons.
+              </div>
+
+              <hr className="how-to-divider" />
+
+              <div className="how-to-demo">
+                <p className="demo-audio-label">Try it — campfire · gap · keyboard</p>
+
+                <img
+                  src="/example-timeline.png"
+                  alt="Example timeline: campfire, gap, keyboard"
+                  className="demo-timeline-img"
+                />
+
+                <div className="how-to-demo-media">
+                  <img
+                    src="/demo-drag.gif"
+                    alt="Drag a sound card onto the timeline"
+                    className="demo-gif"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.style.display = "none";
+                      const placeholder = target.nextElementSibling as HTMLElement | null;
+                      if (placeholder) placeholder.style.display = "flex";
+                    }}
+                  />
+                  <div className="demo-gif-placeholder" style={{ display: "none" }}>
+                    demo-drag.gif · drop into public/ to show here
+                  </div>
+                </div>
+
+                <div className="demo-audio-row">
+                  <audio controls src="/example-output.wav" className="demo-audio-player" />
+                  <button
+                    className="how-to-demo-cta"
+                    onClick={loadExampleTimeline}
+                    disabled={sounds.length < 2}
+                  >
+                    Load Example →
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1080,6 +1140,16 @@ const selectedPath = selectedPathPoints
           </div>
           <div className="timeline-header-right">
             <div className="render-control">
+              {interpLoading && renderJobId && (
+                <button
+                  type="button"
+                  className="render-cancel-btn"
+                  onClick={cancelRunningRender}
+                  title="Cancel render"
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 className={`interpolate-btn${interpLoading ? " loading" : ""}`}
                 onClick={runInterpolation}
@@ -1107,16 +1177,6 @@ const selectedPath = selectedPathPoints
                   />
                 )}
               </button>
-              {interpLoading && renderJobId && (
-                <button
-                  type="button"
-                  className="render-cancel-btn"
-                  onClick={cancelRunningRender}
-                  title="Cancel render"
-                >
-                  Cancel
-                </button>
-              )}
             </div>
           </div>
         </div>

@@ -1424,6 +1424,109 @@ button {
   line-height: 1.6;
 }
 
+/* ─── Demo Section inside How to Use modal ───────────────────── */
+.how-to-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.how-to-demo-media {
+  width: 100%;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--border-0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+}
+
+.demo-gif {
+  display: block;
+  width: 100%;
+  max-height: 210px;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.demo-timeline-img {
+  display: block;
+  width: 100%;
+  border-radius: 5px;
+  border: 1px solid var(--border-0);
+}
+
+.demo-gif-placeholder {
+  padding: 20px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+.how-to-demo-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.demo-audio-label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.demo-audio-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.demo-audio-player {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  accent-color: var(--accent);
+}
+
+.how-to-demo-cta {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.how-to-demo-cta:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.how-to-demo-cta:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.how-to-divider {
+  height: 1px;
+  background: var(--border-0);
+  margin: 0;
+  border: none;
+}
+
 /* How to Use steps */
 .how-to-step {
   display: flex;
