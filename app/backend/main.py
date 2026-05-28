@@ -1,14 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 import uvicorn
 from inference.constants import CACHE_DIR
 from inference.methods import (
     greet,
     get_inference_engine,
-    render_interpolation_audio,
-    render_timeline_audio,
     render_interpolation_to_file,
+    render_timeline_to_file,
 )
 from inference.models import InterpolationElement, InterpolationSegment, RenderRequest
 from inference.embeddings import get_sound_layout, resolve_audio_file
@@ -154,40 +153,48 @@ def get_sound_audio(filename: str):
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
-@app.post("/render")
+def _build_timeline_render_runner(payload: RenderRequest):
+    """Create a closure that runs ``render_timeline_to_file`` for ``payload``."""
+
+    def runner(state: JobState) -> None:
+        output_path = JOBS_DIR / f"{state.job_id}.wav"
+        state.result_path = output_path
+
+        def on_progress(done: int, total: int) -> None:
+            state.update_progress(done, total)
+
+        render_timeline_to_file(
+            payload,
+            output_path,
+            cancel_event=state.cancel_event,
+            progress=on_progress,
+        )
+
+    return runner
+
+
+@app.post("/render", status_code=202)
 def render(payload: RenderRequest):
+    """Enqueue an async timeline render. Returns immediately with a ``job_id``.
+
+    Poll ``/jobs/{job_id}`` for status and fetch ``/jobs/{job_id}/result.wav``
+    once the status is ``done``.
+    """
     logger.info(
         "Received render request: %d segments [%s]",
         len(payload.segments),
         ", ".join(seg.type for seg in payload.segments),
     )
-    try:
-        audio_bytes = render_timeline_audio(payload)
-        logger.info(f"Successfully rendered {len(audio_bytes)} bytes of audio.")
-    except FileNotFoundError as exc:
-        logger.warning(f"File not found during render: {exc}")
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ValueError as exc:
-        logger.warning(f"Invalid render request: {exc}")
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.error(f"Unexpected error during render: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, detail="Internal server error during audio generation"
-        ) from exc
-
-    return Response(content=audio_bytes, media_type="audio/wav")
+    state = job_store.submit(_build_timeline_render_runner(payload))
+    return {"job_id": state.job_id}
 
 
 @app.post("/interpolate", deprecated=True)
 def interpolate(payload: InterpolationElement):
     """Deprecated: thin shim that forwards a single interpolation segment to /render.
 
-    The legacy endpoint only ever emitted the interpolated audio (no flanking
-    clip audio), so the shim wraps the request as one InterpolationSegment to
-    keep the byte output identical for not-yet-migrated frontends. Remove once
-    the frontend talks to /render directly.
+    Now that /render is async, this also returns ``{"job_id": ...}``. Callers
+    should poll ``/jobs/{job_id}`` and fetch ``/jobs/{job_id}/result.wav``.
     """
     logger.info(
         "Received (deprecated) interpolation request: %s <-> %s "
@@ -237,11 +244,11 @@ def _build_render_runner(payload: InterpolationElement):
 
 @app.post("/render/async", status_code=202)
 def render_async(payload: InterpolationElement):
-    """Enqueue an async render. Returns immediately with a ``job_id``.
+    """Enqueue an async render for a single interpolation. Returns ``{job_id}``.
 
-    For the MVP this accepts a single :class:`InterpolationElement`. A future
-    timeline-aware payload (clips + transitions) can plug in here without
-    changing the polling/result endpoints.
+    Prefer :http:post:`/render` for new code — it accepts the full timeline
+    payload. This endpoint is kept for callers that still post a bare
+    :class:`InterpolationElement`.
     """
     logger.info(
         "Render job requested: %s <-> %s (distance_sec=%.3f, duration_sec=%s)",
