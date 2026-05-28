@@ -30,7 +30,7 @@ node_modules/
 checkpoints/
 models/
 model_weights/
-app/backend/inference/weights/
+app/backend/inference/weights/*
 modules/
 
 # =========================
@@ -70,6 +70,7 @@ Thumbs.db
 .idea/
 
 # =========================
-# Logs
+# Logs and jobs
 # =========================
 *.log
+**/jobs/

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, type Segment, type SoundPoint, type SoundHit } from "../api";
+import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 // start and duration are stored in seconds; pixels = value * pxPerSec
@@ -27,7 +27,8 @@ const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
 const SNAP_THRESHOLD_PX = 12;
-const LOADING_VERBS = ["working", "cooking", "interpolating", "generating"] as const;
+const STORAGE_KEY = "gali-workspace";
+const LOADING_VERBS = ["crunching", "baking", "brewing", "simmering", "blending", "cooking", "hallucinating", "conjuring", "morphing", "weaving", "vibing", "crafting"];
 
 function snapEdge(value: number, targets: number[], threshold: number): { snapped: number; dist: number } {
   let best = value;
@@ -80,6 +81,7 @@ export default function WorkspaceView() {
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
+  //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
   const [showHowToUse, setShowHowToUse] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
@@ -238,7 +240,10 @@ export default function WorkspaceView() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const [interpLoading, setInterpLoading] = useState(false);
+  const [renderStatus, setRenderStatus] = useState<"queued" | "running" | null>(null);
+  const [renderProgress, setRenderProgress] = useState<{ done: number; total: number } | null>(null);
+  const [renderJobId, setRenderJobId] = useState<string | null>(null);
+  const interpLoading = renderStatus !== null;
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
@@ -251,16 +256,58 @@ export default function WorkspaceView() {
       return;
     }
     const id = setInterval(() => {
-      setLoadingVerbIdx((i) => (i + 1) % LOADING_VERBS.length);
-    }, 1400 * 3);
+      setLoadingVerbIdx(Math.floor(Math.random() * LOADING_VERBS.length));
+    }, 1400 * 2);
     return () => clearInterval(id);
   }, [interpLoading]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved);
+      console.log("LOADED", parsed);
+
+
+    if (parsed.timelineClips) {
+      setTimelineClips(parsed.timelineClips);
+    }
+
+    if (parsed.quality) {
+      setQuality(parsed.quality);
+    }
+   if (parsed.interpolatedGaps) {
+    setInterpolatedGaps(new Set(parsed.interpolatedGaps));
+  }
+
+  } catch (err) {
+    console.error("Failed to load workspace:", err);
+  }
+}, []);
+
+ useEffect(() => {
+  if (timelineClips.length === 0) return;
+
+  const data = {
+    timelineClips,
+    quality,
+    interpolatedGaps: [...interpolatedGaps],
+
+  };
+
+  console.log("Saving workspace");
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}, [timelineClips, quality, interpolatedGaps]);
 
   useEffect(() => {
     getSounds()
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
+
 const getSoundColor = (name: string, filename = ""): { color: string; glow: string } => {
   const lower = `${name} ${filename}`.toLowerCase();
   if (lower.includes("wind") || lower.includes("breeze"))
@@ -325,7 +372,7 @@ const getEmoji = (name: string, filename = "") => {
 
   // HUMAN
   if (lower.includes("snowsteps")) return "🥾❄️";
-  if (lower.includes("footsteps")) return "👣";
+if (lower.includes("footsteps")) return "/Footsteps_icon.png";
   if (lower.includes("keyboard")) return "⌨️";
 
   return "🎵";
@@ -389,7 +436,9 @@ const moveClip = (id: number, newStartSec: number) => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
     if (sorted.length < 2) return;
 
-    setInterpLoading(true);
+    setRenderStatus("queued");
+    setRenderProgress(null);
+    setRenderJobId(null);
     setInterpError(null);
     if (interpUrlRef.current) {
       URL.revokeObjectURL(interpUrlRef.current);
@@ -397,13 +446,32 @@ const moveClip = (id: number, newStartSec: number) => {
     }
     setInterpUrl(null);
     try {
-      const url = await render(buildTimelineSegments(sorted));
+      const url = await render(buildTimelineSegments(sorted), {
+        onJobId: (id) => setRenderJobId(id),
+        onProgress: (snap) => {
+          if (snap.status === "queued" || snap.status === "running") {
+            setRenderStatus(snap.status);
+            if (snap.progress) setRenderProgress(snap.progress);
+          }
+        },
+      });
       interpUrlRef.current = url;
       setInterpUrl(url);
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Render failed");
     } finally {
-      setInterpLoading(false);
+      setRenderStatus(null);
+      setRenderProgress(null);
+      setRenderJobId(null);
+    }
+  };
+
+  const cancelRunningRender = async () => {
+    if (!renderJobId) return;
+    try {
+      await cancelRender(renderJobId);
+    } catch {
+      /* polling loop will surface the resulting error */
     }
   };
 
@@ -456,7 +524,7 @@ const selectedPathPoints = sortedClips
   .filter(Boolean);
 
 const selectedPath = selectedPathPoints
-  .map((point) => `${point!.px},${point!.py}`)
+  .map((point) => `${point!.px},${point!.py-2}`)
   .join(" ");
 
   const deleteClip = (id: number) => {
@@ -596,12 +664,100 @@ const selectedPath = selectedPathPoints
               <h3>About GALI</h3>
               <button className="close-preview-btn" onClick={() => setShowAbout(false)}>✕</button>
             </div>
+            
             <div className="info-modal-body about-body">
-              <p className="about-tagline"><span style={{ color: "#1E90FF" }}>GALI</span> — Generative Audio Latent Interpolation</p>
-              <p>GALI is a tool for exploring and blending ambient soundscapes using generative AI. Sounds are encoded into a shared latent space using the <strong>CLAP</strong> audio-language model, letting you search by text, find acoustically similar sounds, and interpolate between them to create seamless audio transitions.</p>
-              <p>Place sounds on the timeline, define where crossfades and interpolations happen, and render a fully blended audio composition all in the browser.</p>
+
+              <p className="about-tagline">
+                <span style={{ color: "#1E90FF" }}>GALI</span>
+                {" "}— Generative Audio Latent Interpolation
+              </p>
+
+              <p className="about-subtitle">
+                Explore ambient soundscapes through AI-powered latent space navigation.
+              </p>
+
+              <div className="about-section">
+                <h4>Tech Stack</h4>
+
+                <div className="about-tech-grid">
+
+                  <div>
+                    <p className="about-tech-title">Frontend</p>
+                    <ul className="about-feature-list">
+                      <li>React</li>
+                      <li>TypeScript</li>
+                      <li>Vite</li>
+                      <li>Web Audio API</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="about-tech-title">Backend</p>
+                    <ul className="about-feature-list">
+                      <li>Python</li>
+                      <li>Flask</li>
+                      <li>Audio generation pipeline</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="about-tech-title">AI / Audio</p>
+                    <ul className="about-feature-list">
+                      <li>CLAP embeddings</li>
+                      <li>Latent-space interpolation</li>
+                    </ul>
+                  </div>
+
+                </div>
+              </div>
               <div className="about-divider" />
-              <p className="about-credits">Built as part of the Music Technology Group at <strong>Universitat Pompeu Fabra</strong></p>
+
+              <div className="about-section">
+                <h4>What is GALI?</h4>
+
+                <p>
+                  GALI is an experimental browser-based interface for exploring,
+                  blending and interpolating environmental audio using generative AI.
+                </p>
+
+                <p>
+                  Sounds are embedded into a shared latent space using the
+                  <strong> CLAP </strong>
+                  audio-language model, enabling semantic search,
+                  similarity discovery and seamless interpolation between soundscapes.
+                </p>
+              </div>
+
+              <div className="about-section">
+                <h4>Core Features</h4>
+
+                <ul className="about-feature-list">
+                  <li>AI-based sound similarity search</li>
+                  <li>Interactive latent space exploration</li>
+                  <li>Timeline-based audio composition</li>
+                  <li>Crossfades & generative interpolations</li>
+                  <li>Browser-native audio rendering workflow</li>
+                  <li>Local workspace auto-save</li>
+                </ul>
+              </div>
+
+              <div className="about-section">
+                <h4>Workflow</h4>
+
+                <p>
+                  Drag sounds into the timeline, create transitions between clips,
+                  explore neighbouring sounds in latent space, and render fully blended
+                  ambient compositions directly in the browser.
+                </p>
+              </div>
+
+              <div className="about-divider" />
+
+              <p className="about-credits">
+                Built as part of the Music Technology Group at
+                <strong> Universitat Pompeu Fabra</strong>
+              </p>
+
             </div>
           </div>
         </>
@@ -787,7 +943,7 @@ const selectedPath = selectedPathPoints
                 })}
               </svg>
 
-{interpUrl && selectedPathPoints.length >= 2 && (
+{selectedPathPoints.length >= 2 && (
                 <svg
                   className="interpolation-path-svg"
                   viewBox="0 0 100 100"
@@ -811,6 +967,7 @@ const selectedPath = selectedPathPoints
                     points={selectedPath}
                     markerEnd="url(#arrow-head)"
                     onClick={() => {
+                      if (!interpUrl) return;
                       interpPlayer.seek(0);
                       interpPlayer.play(interpUrl);
                     }}
@@ -922,20 +1079,45 @@ const selectedPath = selectedPathPoints
             )}
           </div>
           <div className="timeline-header-right">
-            <button
-              className={`interpolate-btn${interpLoading ? " loading" : ""}`}
-              onClick={runInterpolation}
-              disabled={!canInterpolate || interpLoading}
-            >
-              {interpLoading ? (
-                <>
-                  {LOADING_VERBS[loadingVerbIdx]}
-                  <span className="loading-dots" aria-hidden="true" />
-                </>
-              ) : (
-                "Interpolate"
+            <div className="render-control">
+              <button
+                className={`interpolate-btn${interpLoading ? " loading" : ""}`}
+                onClick={runInterpolation}
+                disabled={!canInterpolate || interpLoading}
+              >
+                {renderStatus === "queued" && (
+                  <>
+                    Queued
+                    <span className="loading-dots" aria-hidden="true" />
+                  </>
+                )}
+                {renderStatus === "running" && (
+                  <>
+                    {LOADING_VERBS[loadingVerbIdx]}
+                    <span className="loading-dots" aria-hidden="true" />
+                  </>
+                )}
+                {!renderStatus && "Interpolate"}
+                {renderStatus === "running" && renderProgress && renderProgress.total > 0 && (
+                  <span
+                    className="interpolate-btn-fill"
+                    style={{
+                      width: `${(renderProgress.done / Math.max(1, renderProgress.total)) * 100}%`,
+                    }}
+                  />
+                )}
+              </button>
+              {interpLoading && renderJobId && (
+                <button
+                  type="button"
+                  className="render-cancel-btn"
+                  onClick={cancelRunningRender}
+                  title="Cancel render"
+                >
+                  Cancel
+                </button>
               )}
-            </button>
+            </div>
           </div>
         </div>
 
@@ -1103,6 +1285,10 @@ const selectedPath = selectedPathPoints
             })}
           </div>
         </div>
+      </div>
+      
+      <div className="autosave-indicator">
+        ● Auto-saved locally
       </div>
     </div>
   );
