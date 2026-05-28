@@ -28,7 +28,7 @@ const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
 const SNAP_THRESHOLD_PX = 12;
 const STORAGE_KEY = "gali-workspace";
-const LOADING_VERBS = ["working", "cooking", "interpolating", "generating"] as const;
+const LOADING_VERBS = ["crunching", "baking", "brewing", "simmering", "blending", "cooking", "hallucinating", "conjuring", "morphing", "weaving", "vibing", "crafting"];
 
 function snapEdge(value: number, targets: number[], threshold: number): { snapped: number; dist: number } {
   let best = value;
@@ -256,8 +256,8 @@ export default function WorkspaceView() {
       return;
     }
     const id = setInterval(() => {
-      setLoadingVerbIdx((i) => (i + 1) % LOADING_VERBS.length);
-    }, 1400 * 3);
+      setLoadingVerbIdx(Math.floor(Math.random() * LOADING_VERBS.length));
+    }, 1400 * 2);
     return () => clearInterval(id);
   }, [interpLoading]);
 
@@ -1092,17 +1092,10 @@ const selectedPath = selectedPathPoints
                   </>
                 )}
                 {renderStatus === "running" && (
-                  renderProgress && renderProgress.total > 0 ? (
-                    <>
-                      Rendering {renderProgress.done}/{renderProgress.total}
-                      <span className="loading-dots" aria-hidden="true" />
-                    </>
-                  ) : (
-                    <>
-                      {LOADING_VERBS[loadingVerbIdx]}
-                      <span className="loading-dots" aria-hidden="true" />
-                    </>
-                  )
+                  <>
+                    {LOADING_VERBS[loadingVerbIdx]}
+                    <span className="loading-dots" aria-hidden="true" />
+                  </>
                 )}
                 {!renderStatus && "Interpolate"}
                 {renderStatus === "running" && renderProgress && renderProgress.total > 0 && (
