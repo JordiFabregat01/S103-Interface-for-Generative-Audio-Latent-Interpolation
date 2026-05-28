@@ -30,6 +30,29 @@ const SNAP_THRESHOLD_PX = 12;
 const STORAGE_KEY = "gali-workspace";
 const LOADING_VERBS = ["crunching", "baking", "brewing", "simmering", "blending", "cooking", "hallucinating", "conjuring", "morphing", "weaving", "vibing", "crafting"];
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+const PATH_SNAP_RADIUS = 4; // latent units (0–100 viewBox)
+
+type ExplorerCategory = { key: string; label: string; emoji: string; color: string; match: (lower: string) => boolean };
+
+const CATEGORY_DEFS: ExplorerCategory[] = [
+  { key: "wind", label: "Wind", emoji: "💨", color: "#6ee7d4", match: (l) => l.includes("wind") || l.includes("breeze") },
+  { key: "storm", label: "Storm", emoji: "⛈️", color: "#a78bfa", match: (l) => l.includes("thunder") || l.includes("storm") },
+  { key: "rain", label: "Rain", emoji: "🌧️", color: "#7dd3fc", match: (l) => l.includes("rain") },
+  { key: "water", label: "Water", emoji: "💧", color: "#38bdf8", match: (l) => l.includes("waterfall") || l.includes("waterrocks") || l.includes("underwater") || l.includes("river") || l.includes("sea") || l.includes("waves") || l.includes("water") },
+  { key: "fire", label: "Fire", emoji: "🔥", color: "#fb923c", match: (l) => l.includes("fire") },
+  { key: "birds", label: "Birds", emoji: "🐦", color: "#86efac", match: (l) => l.includes("bird") || l.includes("seagull") || l.includes("loon") },
+  { key: "insects", label: "Insects", emoji: "🦗", color: "#fde047", match: (l) => l.includes("bee") || l.includes("cicada") || l.includes("cricket") },
+  { key: "human", label: "Human", emoji: "🥾", color: "#c084fc", match: (l) => l.includes("footstep") || l.includes("keyboard") || l.includes("step") },
+];
+
+function getCategoryKey(name: string, filename = ""): string {
+  const lower = `${name} ${filename}`.toLowerCase();
+  for (const c of CATEGORY_DEFS) if (c.match(lower)) return c.key;
+  return "other";
+}
+
 function snapEdge(value: number, targets: number[], threshold: number): { snapped: number; dist: number } {
   let best = value;
   let bestDist = threshold;
@@ -70,6 +93,7 @@ export default function WorkspaceView() {
   const [resizing, setResizing] = useState<ResizeState | null>(null);
   const [selectedSound, setSelectedSound] = useState<SoundPoint | null>(null);
   const [explorerSelected, setExplorerSelected] = useState<SoundPoint | null>(null);
+  const [pathPreviewing, setPathPreviewing] = useState(false);
   const previewPlayer = useAudioPlayer();
   const interpPlayer = useAudioPlayer();
   const explorerPlayer = useAudioPlayer();
@@ -97,6 +121,33 @@ export default function WorkspaceView() {
     zoomCenterSecRef.current = null;
   }, [pxPerSec]);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
+
+  // Explorer pan/zoom state
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const panRef = useRef({ x: 0, y: 0, zoom: 1 });
+  useEffect(() => { panRef.current = { x: panX, y: panY, zoom }; }, [panX, panY, zoom]);
+  const panDragRef = useRef<{ startX: number; startY: number; origPanX: number; origPanY: number } | null>(null);
+  const explorerPlotRef = useRef<HTMLDivElement>(null);
+
+  // Path tool state
+  const [pathMode, setPathMode] = useState(false);
+  const pathModeRef = useRef(false);
+  useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
+  const [isDrawingPath, setIsDrawingPath] = useState(false);
+  const isDrawingPathRef = useRef(false);
+  useEffect(() => { isDrawingPathRef.current = isDrawingPath; }, [isDrawingPath]);
+  const [drawnPath, setDrawnPath] = useState<{ x: number; y: number }[]>([]);
+  const [drawnNodes, setDrawnNodes] = useState<SoundPoint[]>([]);
+  const drawnNodesRef = useRef<SoundPoint[]>([]);
+  useEffect(() => { drawnNodesRef.current = drawnNodes; }, [drawnNodes]);
+  const [hasDrawnPath, setHasDrawnPath] = useState(false);
+  const hasDrawnPathRef = useRef(false);
+  useEffect(() => { hasDrawnPathRef.current = hasDrawnPath; }, [hasDrawnPath]);
+
+  // Filters
+  const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -526,6 +577,159 @@ const selectedPathPoints = sortedClips
 const selectedPath = selectedPathPoints
   .map((point) => `${point!.px},${point!.py-2}`)
   .join(" ");
+
+  const visiblePoints = useMemo(
+    () => placedPoints.filter((p) => !hiddenCategories.has(getCategoryKey(p.name, p.filename))),
+    [placedPoints, hiddenCategories]
+  );
+  const visiblePointsRef = useRef(visiblePoints);
+  useEffect(() => { visiblePointsRef.current = visiblePoints; }, [visiblePoints]);
+
+  const transformAttr = `translate(${panX} ${panY}) scale(${zoom})`;
+
+  const zoomBy = (factor: number, cx = 50, cy = 50) => {
+    const z = panRef.current.zoom;
+    const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z * factor));
+    if (next === z) return;
+    const latX = (cx - panRef.current.x) / z;
+    const latY = (cy - panRef.current.y) / z;
+    setZoom(next);
+    setPanX(cx - latX * next);
+    setPanY(cy - latY * next);
+  };
+  const goHome = () => { setPanX(0); setPanY(0); setZoom(1); };
+
+  const nearestDot = (latX: number, latY: number): SoundPoint | null => {
+    let best: SoundPoint | null = null;
+    let bestDist = PATH_SNAP_RADIUS;
+    for (const p of visiblePointsRef.current) {
+      const d = Math.hypot(p.x * 100 - latX, p.y * 100 - latY);
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return best;
+  };
+
+  // Global mouse handlers for panning and path drawing
+  useEffect(() => {
+    const screenToLatent = (clientX: number, clientY: number) => {
+      const el = explorerPlotRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const sx = ((clientX - rect.left) / rect.width) * 100;
+      const sy = ((clientY - rect.top) / rect.height) * 100;
+      const { x: px, y: py, zoom: z } = panRef.current;
+      return { lx: (sx - px) / z, ly: (sy - py) / z };
+    };
+    const onMove = (e: MouseEvent) => {
+      if (panDragRef.current) {
+        const el = explorerPlotRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const dx = ((e.clientX - panDragRef.current.startX) / rect.width) * 100;
+        const dy = ((e.clientY - panDragRef.current.startY) / rect.height) * 100;
+        setPanX(panDragRef.current.origPanX + dx);
+        setPanY(panDragRef.current.origPanY + dy);
+      } else if (isDrawingPathRef.current) {
+        const pt = screenToLatent(e.clientX, e.clientY);
+        if (!pt) return;
+        setDrawnPath((prev) => [...prev, { x: pt.lx, y: pt.ly }]);
+        const hit = nearestDot(pt.lx, pt.ly);
+        if (hit) {
+          const cur = drawnNodesRef.current;
+          if (cur.length === 0 || cur[cur.length - 1].id !== hit.id) {
+            setDrawnNodes([...cur, hit]);
+          }
+        }
+      }
+    };
+    const onUp = () => {
+      if (panDragRef.current) {
+        panDragRef.current = null;
+        document.body.style.cursor = "";
+      }
+      if (isDrawingPathRef.current) {
+        setIsDrawingPath(false);
+        const nodes = drawnNodesRef.current;
+        if (nodes.length >= 2) {
+          setHasDrawnPath(true);
+        } else {
+          setDrawnPath([]);
+          setDrawnNodes([]);
+        }
+      }
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  // Wheel zoom on explorer plot
+  useEffect(() => {
+    const el = explorerPlotRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const cx = ((e.clientX - rect.left) / rect.width) * 100;
+      const cy = ((e.clientY - rect.top) / rect.height) * 100;
+      zoomBy(e.deltaY < 0 ? 1.2 : 1 / 1.2, cx, cy);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const onPlotMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (pathModeRef.current) {
+      const el = explorerPlotRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const sx = ((e.clientX - rect.left) / rect.width) * 100;
+      const sy = ((e.clientY - rect.top) / rect.height) * 100;
+      const { x: px, y: py, zoom: z } = panRef.current;
+      const lx = (sx - px) / z;
+      const ly = (sy - py) / z;
+      setIsDrawingPath(true);
+      setDrawnPath([{ x: lx, y: ly }]);
+      const hit = nearestDot(lx, ly);
+      setDrawnNodes(hit ? [hit] : []);
+    } else {
+      panDragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origPanX: panRef.current.x,
+        origPanY: panRef.current.y,
+      };
+      document.body.style.cursor = "grabbing";
+    }
+  };
+
+  const cancelPath = () => {
+    setHasDrawnPath(false);
+    setDrawnPath([]);
+    setDrawnNodes([]);
+  };
+
+  const acceptPath = () => {
+    if (drawnNodes.length < 2) return;
+    const startSec = timelineClips.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+    const dur = DEFAULT_CLIP_DURATION_SEC;
+    const t = Date.now();
+    const newClips: TimelineClip[] = drawnNodes.map((p, i) => ({
+      id: t + i,
+      name: p.name,
+      filename: p.filename,
+      start: startSec + i * dur,
+      duration: dur,
+    }));
+    setTimelineClips((prev) => [...prev, ...newClips]);
+    setInterpUrl("");
+    setPathMode(false);
+    cancelPath();
+  };
 
   const loadExampleTimeline = () => {
     if (sounds.length < 2) return;
@@ -977,109 +1181,228 @@ const selectedPath = selectedPathPoints
 
         <div className="drop-panel">
           <h2>Latent Space Exploration</h2>
-          <p className="library-hint">Click to preview · Drag to timeline</p>
-          <div className="explorer-plot-wrap">
-            <div className="explorer-plot">
-              {/* Territory blobs */}
-              <svg className="explorer-territory-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <defs>
-                  <filter id="territory-blur" x="-80%" y="-80%" width="260%" height="260%">
-                    <feGaussianBlur stdDeviation="5" />
-                  </filter>
-                </defs>
-                {placedPoints.map((point) => {
-                  const { color } = getSoundColor(point.name, point.filename);
+          <p className="library-hint">
+            {pathMode
+              ? "Drag through sounds to trace a path · release to confirm"
+              : "Click to preview · Drag to timeline · Drag empty space to pan"}
+          </p>
+          <div className="explorer-body">
+            <div className={`explorer-plot-wrap${pathMode ? " path-mode" : ""}${panDragRef.current ? " panning" : ""}`}>
+              <div
+                className="explorer-plot"
+                ref={explorerPlotRef}
+                onMouseDown={onPlotMouseDown}
+              >
+                {/* Drawn path (live or pending review) */}
+                {(isDrawingPath || drawnPath.length > 0) && (
+                  <svg className="drawn-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <g transform={transformAttr}>
+                      <polyline
+                        className="drawn-path-line"
+                        points={drawnPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                      />
+                      {drawnNodes.map((n) => (
+                        <circle key={n.id} className="drawn-path-node" cx={n.x * 100} cy={n.y * 100} r="2.4" />
+                      ))}
+                    </g>
+                  </svg>
+                )}
+
+                {selectedPathPoints.length >= 2 && (
+                  <svg
+                    className="interpolation-path-svg"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                  >
+                    <defs>
+                      <marker
+                        id="arrow-head"
+                        markerWidth="6"
+                        markerHeight="6"
+                        refX="5"
+                        refY="3"
+                        orient="auto"
+                      >
+                        <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
+                      </marker>
+                    </defs>
+                    <g transform={transformAttr}>
+                      <polyline
+                        className="interpolation-path ready"
+                        points={selectedPath}
+                        markerEnd="url(#arrow-head)"
+                        onClick={() => {
+                          if (!interpUrl) return;
+                          explorerPlayer.pause();
+                          previewPlayer.pause();
+                          setExplorerSelected(null);
+                          setPathPreviewing(true);
+                          interpPlayer.seek(0);
+                          interpPlayer.play(interpUrl);
+                        }}
+                      />
+                    </g>
+                  </svg>
+                )}
+
+                {visiblePoints.map((point) => {
+                  const { color, glow } = getSoundColor(point.name, point.filename);
+                  const dx = point.px * zoom + panX;
+                  const dy = point.py * zoom + panY;
+                  if (dx < -5 || dx > 105 || dy < -5 || dy > 105) return null;
                   return (
-                    <circle
+                    <div
                       key={point.id}
-                      cx={point.px}
-                      cy={point.py}
-                      r="7"
-                      fill={color}
-                      opacity="0.06"
-                      filter="url(#territory-blur)"
-                    />
+                      className={`dot${explorerSelected?.id === point.id ? " selected" : ""}${explorerSelected?.id === point.id && explorerPlayer.isPlaying ? " playing" : ""}`}
+                      style={{ left: `${dx}%`, top: `${dy}%`, "--dot-color": color, "--dot-glow": glow } as React.CSSProperties}
+                      draggable={!pathMode}
+                      onMouseDown={(e) => { e.stopPropagation(); }}
+                      onDragStart={() => { dragSoundRef.current = point; }}
+                      onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (pathMode) return;
+                        if (explorerSelected?.id === point.id) {
+                          if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
+                        } else {
+                          explorerPlayer.pause();
+                          interpPlayer.pause();
+                          setPathPreviewing(false);
+                          setExplorerSelected(point);
+                          explorerPlayer.play(getSoundUrl(point.filename));
+                        }
+                      }}
+                      title={point.name}
+                    >
+                      <span className="dot-marker" />
+                      <span className="dot-label">{point.name}</span>
+                    </div>
                   );
                 })}
-              </svg>
+              </div>
 
-{selectedPathPoints.length >= 2 && (
-                <svg
-                  className="interpolation-path-svg"
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                >
-                  <defs>
-                    <marker
-                      id="arrow-head"
-                      markerWidth="6"
-                      markerHeight="6"
-                      refX="5"
-                      refY="3"
-                      orient="auto"
-                    >
-                      <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
-                    </marker>
-                  </defs>
-
-                  <polyline
-                    className="interpolation-path ready"
-                    points={selectedPath}
-                    markerEnd="url(#arrow-head)"
-                    onClick={() => {
-                      if (!interpUrl) return;
-                      interpPlayer.seek(0);
-                      interpPlayer.play(interpUrl);
-                    }}
-                  />
-                </svg>
+              {explorerSelected && (
+                <div className="sound-preview-panel explorer-floating-preview">
+                  <div className="sound-preview-header">
+                    <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
+                    <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
+                  </div>
+                  <div className="preview-controls">
+                    <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename)); }} title="Restart">↺</button>
+                    <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename))}>
+                      {explorerPlayer.isPlaying ? "⏸" : "▶"}
+                    </button>
+                    <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
+                    <span className="audio-time">{fmt(explorerPlayer.currentTime)} / {fmt(explorerPlayer.duration)}</span>
+                  </div>
+                </div>
               )}
 
-              {placedPoints.map((point) => {
-                const { color, glow } = getSoundColor(point.name, point.filename);
-                return (
-                  <div
-                    key={point.id}
-                    className={`dot${explorerSelected?.id === point.id ? " selected" : ""}${explorerSelected?.id === point.id && explorerPlayer.isPlaying ? " playing" : ""}`}
-                    style={{ left: `${point.px}%`, top: `${point.py}%`, "--dot-color": color, "--dot-glow": glow } as React.CSSProperties}
-                    draggable
-                    onDragStart={() => { dragSoundRef.current = point; }}
-                    onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
-                    onClick={() => {
-                      if (explorerSelected?.id === point.id) {
-                        if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
-                      } else {
-                        explorerPlayer.pause();
-                        setExplorerSelected(point);
-                        explorerPlayer.play(getSoundUrl(point.filename));
-                      }
-                    }}
-                    title={point.name}
-                  >
-                    <span className="dot-marker" />
-                    <span className="dot-label">{point.name}</span>
+              {pathPreviewing && interpUrl && !explorerSelected && (
+                <div className="sound-preview-panel explorer-floating-preview">
+                  <div className="sound-preview-header">
+                    <span className="preview-name">↝ Interpolated path</span>
+                    <button className="close-preview-btn" onClick={() => { interpPlayer.pause(); setPathPreviewing(false); }}>✕</button>
                   </div>
-                );
-              })}
+                  <div className="preview-controls">
+                    <button className="preview-play-btn" onClick={() => { interpPlayer.seek(0); interpPlayer.play(interpUrl); }} title="Restart">↺</button>
+                    <button className="preview-play-btn" onClick={() => interpPlayer.isPlaying ? interpPlayer.pause() : interpPlayer.play(interpUrl)}>
+                      {interpPlayer.isPlaying ? "⏸" : "▶"}
+                    </button>
+                    <input className="audio-scrubber" type="range" min={0} max={interpPlayer.duration || 1} step={0.01} value={interpPlayer.currentTime} onChange={(e) => interpPlayer.seek(Number(e.target.value))} />
+                    <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
-          </div>
-          {explorerSelected && (
-            <div className="sound-preview-panel">
-              <div className="sound-preview-header">
-                <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
-                <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
+            <div className="explorer-tools">
+              <div className="explorer-tool-row">
+                <button className="zoom-btn" onClick={() => zoomBy(1.5)} disabled={zoom >= MAX_ZOOM - 1e-6} title="Zoom in">+</button>
+                <button className="zoom-btn" onClick={() => zoomBy(1 / 1.5)} disabled={zoom <= MIN_ZOOM + 1e-6} title="Zoom out">−</button>
+                <button className="zoom-btn" onClick={goHome} title="Reset view">⌂</button>
               </div>
-              <div className="preview-controls">
-                <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename)); }} title="Restart">↺</button>
-                <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename))}>
-                  {explorerPlayer.isPlaying ? "⏸" : "▶"}
-                </button>
-                <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
-                <span className="audio-time">{fmt(explorerPlayer.currentTime)} / {fmt(explorerPlayer.duration)}</span>
+              <button
+                className={`explorer-path-btn${pathMode ? " active" : ""}`}
+                onClick={() => { if (pathMode) { setPathMode(false); cancelPath(); } else { setPathMode(true); } }}
+                title="Trace a path through the space"
+              >
+                {pathMode ? "Cancel path" : "✎ Trace path"}
+              </button>
+
+              <div className="explorer-tool-divider" />
+
+              <div className="explorer-section-label">Filters</div>
+              <div className="explorer-filter-chips">
+                {CATEGORY_DEFS.map((c) => {
+                  const hidden = hiddenCategories.has(c.key);
+                  return (
+                    <button
+                      key={c.key}
+                      className={`filter-chip${hidden ? " off" : ""}`}
+                      style={{ "--chip-color": c.color } as React.CSSProperties}
+                      onClick={() => {
+                        setHiddenCategories((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(c.key)) next.delete(c.key); else next.add(c.key);
+                          return next;
+                        });
+                      }}
+                      title={`${hidden ? "Show" : "Hide"} ${c.label}`}
+                    >
+                      <span className="filter-chip-emoji">{c.emoji}</span>
+                      <span className="filter-chip-label">{c.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+
+              <div className="explorer-tool-divider" />
+
+              <div className="explorer-section-label">Overview</div>
+              <svg
+                className="explorer-minimap"
+                viewBox="-6 -6 112 112"
+                preserveAspectRatio="none"
+                onClick={(e) => {
+                  const r = (e.currentTarget as unknown as SVGSVGElement).getBoundingClientRect();
+                  // Map click into latent coords using the same padded viewBox (-6..106 → 0..100 of data).
+                  const cx = (((e.clientX - r.left) / r.width) * 112) - 6;
+                  const cy = (((e.clientY - r.top) / r.height) * 112) - 6;
+                  setPanX(50 - cx * zoom);
+                  setPanY(50 - cy * zoom);
+                }}
+              >
+                {placedPoints.map((p) => {
+                  const cat = getCategoryKey(p.name, p.filename);
+                  const color = CATEGORY_DEFS.find((c) => c.key === cat)?.color ?? "#58a6ff";
+                  const muted = hiddenCategories.has(cat);
+                  return (
+                    <circle key={p.id} cx={p.px} cy={p.py} r="1.4" fill={color} opacity={muted ? 0.18 : 0.85} />
+                  );
+                })}
+                <rect
+                  className="minimap-viewport"
+                  x={-panX / zoom}
+                  y={-panY / zoom}
+                  width={100 / zoom}
+                  height={100 / zoom}
+                />
+              </svg>
+
+              {hasDrawnPath && drawnNodes.length >= 2 && (
+                <>
+                  <div className="explorer-tool-divider" />
+                  <div className="explorer-section-label">Drawn path · {drawnNodes.length} sounds</div>
+                  <div className="drawn-path-actions">
+                    <button className="btn-secondary" onClick={cancelPath}>Cancel</button>
+                    <button className="btn-primary" onClick={acceptPath}>Add to timeline</button>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </div>
+
         </div>
       </div>
 
@@ -1110,6 +1433,12 @@ const selectedPath = selectedPathPoints
                 title="Zoom in"
               >+</button>
             </div>
+            <button
+              className="timeline-clear-btn"
+              onClick={() => setTimelineClips([])}
+              disabled={timelineClips.length === 0}
+              title="Clear timeline"
+            >Clear</button>
             {interpError && <p className="interp-error">{interpError}</p>}
             {interpUrl && !interpLoading && (
               <div className="interp-result">
@@ -1284,7 +1613,17 @@ const selectedPath = selectedPathPoints
                     setDragStartWidth(timelineWidth);
                     setSelectedClipId(null);
                   }}
-                  onDragEnd={() => { setDraggingId(null); resetDragState(); }}
+                  onDragEnd={(e) => {
+                    setDraggingId(null);
+                    resetDragState();
+                    const scroll = scrollRef.current;
+                    if (!scroll) return;
+                    const r = scroll.getBoundingClientRect();
+                    const outside =
+                      e.clientX < r.left || e.clientX > r.right ||
+                      e.clientY < r.top || e.clientY > r.bottom;
+                    if (outside) deleteClip(clip.id);
+                  }}
                   onDrag={(e) => {
                     if (e.clientX <= 0) return;
                     const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
