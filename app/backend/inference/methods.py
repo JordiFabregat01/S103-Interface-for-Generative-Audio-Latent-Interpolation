@@ -372,6 +372,61 @@ def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
     return audio.mean(dim=0, keepdim=True).expand(channels, -1).contiguous()
 
 
+# Default boundary crossfade length when stitching non-silence segments.
+# Short enough not to noticeably shorten any segment, long enough to mask the
+# phase / content discontinuity between a real clip and a model-generated
+# interpolation at the join.
+_SEGMENT_XFADE_SEC = 0.05
+
+
+def _stitch_segments(
+    tensors: List[torch.Tensor],
+    types: List[str],
+    *,
+    sample_rate: int,
+    xfade_sec: float = _SEGMENT_XFADE_SEC,
+) -> torch.Tensor:
+    """Concatenate ``[C, T]`` segments, equal-power-crossfading non-silence joins.
+
+    Boundaries that touch a silence segment on either side are hard-cat, so
+    user-intended gaps stay exact. Crossfades are clipped to whatever
+    headroom each neighbor has so we never exceed a segment's length.
+    """
+    if not tensors:
+        raise ValueError("no segments to stitch")
+    if len(tensors) != len(types):
+        raise ValueError("tensors / types length mismatch")
+
+    xfade_n = max(0, int(round(xfade_sec * sample_rate)))
+    out = tensors[0]
+    for i in range(1, len(tensors)):
+        nxt = tensors[i]
+        a_type = types[i - 1]
+        b_type = types[i]
+        can_xfade = (
+            xfade_n > 0
+            and a_type != "silence"
+            and b_type != "silence"
+        )
+        if can_xfade:
+            n = min(xfade_n, out.shape[-1], nxt.shape[-1])
+        else:
+            n = 0
+
+        if n <= 0:
+            out = torch.cat([out, nxt], dim=-1)
+            continue
+
+        t = torch.linspace(0, 1, n, dtype=out.dtype, device=out.device)
+        fade_out = torch.cos(t * (math.pi / 2))
+        fade_in = torch.sin(t * (math.pi / 2))
+        tail = out[..., -n:]
+        head = nxt[..., :n]
+        blend = tail * fade_out + head * fade_in
+        out = torch.cat([out[..., :-n], blend, nxt[..., n:]], dim=-1)
+    return out
+
+
 def render_timeline_audio(request: RenderRequest) -> bytes:
     """Render a clip / silence / interpolation timeline to a 16-bit PCM WAV.
 
@@ -420,6 +475,7 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
         anchor_overrides[idx] = (a_anchor, b_anchor)
 
     tensors: List[torch.Tensor] = []
+    seg_types: List[str] = []
     for index, segment in enumerate(segs):
         if segment.type == "clip":
             tensor = _load_clip_tensor(
@@ -456,14 +512,14 @@ def render_timeline_audio(request: RenderRequest) -> bytes:
 
         if tensor.shape[-1] > 0:
             tensors.append(tensor)
+            seg_types.append(segment.type)
 
     if not tensors:
         raise ValueError("timeline produced no audio")
 
     channels = max(seg.shape[0] for seg in tensors)
-    stitched = torch.cat(
-        [_match_channels(seg, channels) for seg in tensors], dim=-1
-    )
+    matched = [_match_channels(seg, channels) for seg in tensors]
+    stitched = _stitch_segments(matched, seg_types, sample_rate=sample_rate)
     logger.info(
         "rendered timeline: %d segments, %d channels, %.3fs",
         len(segs),

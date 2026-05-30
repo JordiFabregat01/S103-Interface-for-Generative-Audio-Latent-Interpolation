@@ -34,6 +34,12 @@ _CONCRETE_CONTEXT_MODES: tuple[str, ...] = (
     "dynamic",
 )
 
+# Decode methods that use the asymmetric prefix-padding OLA window. Their first
+# `macro_overlap_samples` are guaranteed-silent prefix (no past audio feeds the
+# zero-padded region), and the last `crossfade_samples` taper to zero (the
+# trailing hann fade of the final atom). For interpolation we trim both edges.
+_OLA_DECODE_METHODS: frozenset[str] = frozenset({"ola", "ola_smooth"})
+
 
 @dataclass
 class EncodedSource:
@@ -171,12 +177,47 @@ def _build_alpha_curve(timeline_size: int, stay_time: int, stickyness: float) ->
     else:
         ramp = sticky_curve_torch(n_points=inner, stickiness=stickyness)
     full = torch.cat([torch.zeros(stay_time), ramp, torch.ones(stay_time)])
-    return low_pass_filter(full, alpha=0.5)
+    smoothed = low_pass_filter(full, alpha=0.5)
+    # `low_pass_filter` is 10 causal EMA passes with `filtered[0]` pinned to 0;
+    # the accumulated lag means `smoothed[-1]` never reaches 1 on practical
+    # timelines (e.g. ~0.66 for N=30), so the slerp stops short of source B
+    # and the interpolation feels biased toward source A. Renormalize so the
+    # curve always spans the full [0, 1] range end-to-end.
+    if smoothed.numel() > 1:
+        span = smoothed[-1] - smoothed[0]
+        if span.abs() > 1e-6:
+            smoothed = (smoothed - smoothed[0]) / span
+    return smoothed
 
 
 def _check_cancelled(cancel_event: Optional[threading.Event]) -> None:
     if cancel_event is not None and cancel_event.is_set():
         raise InterpolationCancelled("interpolation cancelled by caller")
+
+
+def _trim_ola_padding(audio: Tensor, engine: FlowInference) -> Tensor:
+    """Strip the asymmetric-OLA silent prefix and trailing fade from a render.
+
+    SCAPES' OLA window is `[zeros | hann_in | ones | hann_out]` with a
+    `macro_overlap - crossfade` frame zero prefix. For atoms 1..N-1 those
+    zeros overlap with the previous atom's audible region and reconstruction
+    works; for atom 0 there is no previous atom, so the first
+    `macro_overlap_samples` of the rendered buffer are guaranteed silence.
+    Symmetrically, the last atom's trailing `crossfade_samples` are a Hann
+    fade to zero. Trim both so the interpolation hands off at full level to
+    the surrounding clip rather than through a silent gap.
+    """
+    head = int(getattr(engine, "macro_overlap_samples", 0))
+    tail = int(getattr(engine, "crossfade_samples", 0))
+    if head < 0:
+        head = 0
+    if tail < 0:
+        tail = 0
+    total = audio.shape[-1]
+    if total <= head + tail:
+        # Pathological short render; leave it alone rather than emit zero-length.
+        return audio
+    return audio[..., head: total - tail]
 
 
 def interpolate(
@@ -258,13 +299,16 @@ def interpolate(
     if audio.dim() == 3:
         audio = audio.squeeze(0)
 
+    if request.decode_method in _OLA_DECODE_METHODS:
+        audio = _trim_ola_padding(audio, engine)
+
     atoms_generated = [
         step["atom_generated"].detach().cpu()
         for step in timeline
         if step.get("atom_generated") is not None
     ]
 
-    actual_duration = timeline_size * hop_sec
+    actual_duration = audio.shape[-1] / engine.sr
 
     logger.info(
         "interpolate: timeline_size=%d, context_mode=%s, nfe=%d, duration_sec=%.3f",
