@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
 import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
+import SavedWorkLibrary from "./SavedWorkLibrary";
+import { defaultSavedWorkName, saveWork, type SavedWork } from "../savedWork";
 
 // start and duration are stored in seconds; pixels = value * pxPerSec
 type TimelineClip = {
@@ -109,6 +111,14 @@ export default function WorkspaceView() {
   const [showSettings, setShowSettings] = useState(false);
   const [showHowToUse, setShowHowToUse] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+
+  const [showSavedLibrary, setShowSavedLibrary] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
   const pxPerSecRef = useRef(DEFAULT_PX_PER_SEC);
   const zoomCenterSecRef = useRef<number | null>(null);
@@ -757,6 +767,58 @@ const selectedPath = selectedPathPoints
     if (selectedClipId === id) setSelectedClipId(null);
   };
 
+  const applySavedWork = (work: SavedWork, wavUrl: string) => {
+    setTimelineClips(work.timelineClips);
+    setInterpolatedGaps(new Set(work.interpolatedGaps));
+    setQuality(work.quality);
+    setSelectedClipId(null);
+    setInterpError(null);
+    if (interpUrlRef.current && interpUrlRef.current !== wavUrl) {
+      URL.revokeObjectURL(interpUrlRef.current);
+    }
+    interpUrlRef.current = wavUrl;
+    setInterpUrl(wavUrl);
+  };
+
+  const openSaveDialog = () => {
+    setSaveName(defaultSavedWorkName(timelineClips));
+    setSaveError(null);
+    setShowSaveDialog(true);
+  };
+
+  const confirmSaveToLibrary = async () => {
+    if (!interpUrl) return;
+    const name = saveName.trim();
+    if (!name) {
+      setSaveError("Please enter a name.");
+      return;
+    }
+
+    setSaveBusy(true);
+    setSaveError(null);
+    try {
+      const response = await fetch(interpUrl);
+      const wav = await response.blob();
+      await saveWork(
+        {
+          name,
+          timelineClips,
+          interpolatedGaps: [...interpolatedGaps],
+          quality,
+          durationSec: interpPlayer.duration || undefined,
+        },
+        wav,
+      );
+      setShowSaveDialog(false);
+      setSaveNotice(`Saved "${name}"`);
+      window.setTimeout(() => setSaveNotice(null), 3000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save work");
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
   return (
     <div className="workspace-page">
       <div className="app-header">
@@ -777,6 +839,18 @@ const selectedPath = selectedPathPoints
             title="About"
           >
             About
+          </button>
+
+          <button
+            className="settings-btn"
+            onClick={() => {
+              setShowHowToUse(false);
+              setShowAbout(false);
+              setShowSavedLibrary(true);
+            }}
+            title="Saved work"
+          >
+            Saved
           </button>
 
           <button
@@ -868,8 +942,8 @@ const selectedPath = selectedPathPoints
               <div className="how-to-step">
                 <span className="how-to-num">6</span>
                 <div>
-                  <strong>Render &amp; Download</strong>
-                  <p>Hit <strong>Interpolate</strong> (bottom-right of the timeline) to render the full sequence. When it's ready, use the player in the timeline header to preview, and click <strong>Download WAV</strong> to save the file.</p>
+                  <strong>Render, Save &amp; Download</strong>
+                  <p>Hit <strong>Interpolate</strong> (bottom-right of the timeline) to render the full sequence. When it's ready, preview the result in the timeline header, then use <strong>Save to library</strong> to keep both the WAV and the timeline layout, or <strong>Download WAV</strong> for the audio file only. Open <strong>Saved</strong> in the header to reload previous work.</p>
                 </div>
               </div>
               <div className="how-to-tip">
@@ -1002,6 +1076,7 @@ const selectedPath = selectedPathPoints
                   <li>Crossfades & generative interpolations</li>
                   <li>Browser-native audio rendering workflow</li>
                   <li>Local workspace auto-save</li>
+                  <li>Saved work library (WAV + timeline)</li>
                 </ul>
               </div>
 
@@ -1457,6 +1532,13 @@ const selectedPath = selectedPathPoints
                   onChange={(e) => interpPlayer.seek(Number(e.target.value))}
                 />
                 <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                <button
+                  type="button"
+                  className="save-work-btn"
+                  onClick={openSaveDialog}
+                >
+                  Save to library
+                </button>
                 <a
                   href={interpUrl}
                   download={`interpolation-${Date.now()}.wav`}
@@ -1464,6 +1546,7 @@ const selectedPath = selectedPathPoints
                 >
                   Download WAV
                 </a>
+                {saveNotice && <span className="save-work-notice">{saveNotice}</span>}
               </div>
             )}
           </div>
@@ -1689,6 +1772,53 @@ const selectedPath = selectedPathPoints
       <div className="autosave-indicator">
         ● Auto-saved locally
       </div>
+
+      <SavedWorkLibrary
+        open={showSavedLibrary}
+        onClose={() => setShowSavedLibrary(false)}
+        onLoad={applySavedWork}
+      />
+
+      {showSaveDialog && (
+        <>
+          <div className="info-modal-backdrop" onClick={() => !saveBusy && setShowSaveDialog(false)} />
+          <div className="save-work-dialog" role="dialog" aria-modal="true" aria-label="Save to library">
+            <h3>Save to library</h3>
+            <p className="save-work-dialog-hint">
+              Stores the rendered WAV and the current timeline layout together.
+            </p>
+            <input
+              className="save-work-name-input"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="Name this interpolation"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmSaveToLibrary();
+              }}
+            />
+            {saveError && <p className="interp-error">{saveError}</p>}
+            <div className="save-work-dialog-actions">
+              <button
+                type="button"
+                className="saved-work-btn"
+                onClick={() => setShowSaveDialog(false)}
+                disabled={saveBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="saved-work-btn primary"
+                onClick={confirmSaveToLibrary}
+                disabled={saveBusy}
+              >
+                {saveBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
