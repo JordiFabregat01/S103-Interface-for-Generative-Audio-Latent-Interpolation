@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, type Segment, type SoundPoint, type SoundHit } from "../api";
+import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 // start and duration are stored in seconds; pixels = value * pxPerSec
@@ -27,7 +27,31 @@ const DEFAULT_CLIP_DURATION_SEC = 3;
 const TIMELINE_BUFFER_PX = 400;
 const MIN_CLIP_DURATION_SEC = 0.25;
 const SNAP_THRESHOLD_PX = 12;
-const LOADING_VERBS = ["working", "cooking", "interpolating", "generating"] as const;
+const STORAGE_KEY = "gali-workspace";
+const LOADING_VERBS = ["crunching", "baking", "brewing", "simmering", "blending", "cooking", "hallucinating", "conjuring", "morphing", "weaving", "vibing", "crafting"];
+
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+const PATH_SNAP_RADIUS = 4; // latent units (0–100 viewBox)
+
+type ExplorerCategory = { key: string; label: string; emoji: string; color: string; match: (lower: string) => boolean };
+
+const CATEGORY_DEFS: ExplorerCategory[] = [
+  { key: "wind", label: "Wind", emoji: "💨", color: "#6ee7d4", match: (l) => l.includes("wind") || l.includes("breeze") },
+  { key: "storm", label: "Storm", emoji: "⛈️", color: "#a78bfa", match: (l) => l.includes("thunder") || l.includes("storm") },
+  { key: "rain", label: "Rain", emoji: "🌧️", color: "#7dd3fc", match: (l) => l.includes("rain") },
+  { key: "water", label: "Water", emoji: "💧", color: "#38bdf8", match: (l) => l.includes("waterfall") || l.includes("waterrocks") || l.includes("underwater") || l.includes("river") || l.includes("sea") || l.includes("waves") || l.includes("water") },
+  { key: "fire", label: "Fire", emoji: "🔥", color: "#fb923c", match: (l) => l.includes("fire") },
+  { key: "birds", label: "Birds", emoji: "🐦", color: "#86efac", match: (l) => l.includes("bird") || l.includes("seagull") || l.includes("loon") },
+  { key: "insects", label: "Insects", emoji: "🦗", color: "#fde047", match: (l) => l.includes("bee") || l.includes("cicada") || l.includes("cricket") },
+  { key: "human", label: "Human", emoji: "🥾", color: "#c084fc", match: (l) => l.includes("footstep") || l.includes("keyboard") || l.includes("step") },
+];
+
+function getCategoryKey(name: string, filename = ""): string {
+  const lower = `${name} ${filename}`.toLowerCase();
+  for (const c of CATEGORY_DEFS) if (c.match(lower)) return c.key;
+  return "other";
+}
 
 function snapEdge(value: number, targets: number[], threshold: number): { snapped: number; dist: number } {
   let best = value;
@@ -69,6 +93,7 @@ export default function WorkspaceView() {
   const [resizing, setResizing] = useState<ResizeState | null>(null);
   const [selectedSound, setSelectedSound] = useState<SoundPoint | null>(null);
   const [explorerSelected, setExplorerSelected] = useState<SoundPoint | null>(null);
+  const [pathPreviewing, setPathPreviewing] = useState(false);
   const previewPlayer = useAudioPlayer();
   const interpPlayer = useAudioPlayer();
   const explorerPlayer = useAudioPlayer();
@@ -80,6 +105,7 @@ export default function WorkspaceView() {
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
+  //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
   const [showHowToUse, setShowHowToUse] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
@@ -95,6 +121,33 @@ export default function WorkspaceView() {
     zoomCenterSecRef.current = null;
   }, [pxPerSec]);
   useEffect(() => { clipsRef.current = timelineClips; }, [timelineClips]);
+
+  // Explorer pan/zoom state
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const panRef = useRef({ x: 0, y: 0, zoom: 1 });
+  useEffect(() => { panRef.current = { x: panX, y: panY, zoom }; }, [panX, panY, zoom]);
+  const panDragRef = useRef<{ startX: number; startY: number; origPanX: number; origPanY: number } | null>(null);
+  const explorerPlotRef = useRef<HTMLDivElement>(null);
+
+  // Path tool state
+  const [pathMode, setPathMode] = useState(false);
+  const pathModeRef = useRef(false);
+  useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
+  const [isDrawingPath, setIsDrawingPath] = useState(false);
+  const isDrawingPathRef = useRef(false);
+  useEffect(() => { isDrawingPathRef.current = isDrawingPath; }, [isDrawingPath]);
+  const [drawnPath, setDrawnPath] = useState<{ x: number; y: number }[]>([]);
+  const [drawnNodes, setDrawnNodes] = useState<SoundPoint[]>([]);
+  const drawnNodesRef = useRef<SoundPoint[]>([]);
+  useEffect(() => { drawnNodesRef.current = drawnNodes; }, [drawnNodes]);
+  const [hasDrawnPath, setHasDrawnPath] = useState(false);
+  const hasDrawnPathRef = useRef(false);
+  useEffect(() => { hasDrawnPathRef.current = hasDrawnPath; }, [hasDrawnPath]);
+
+  // Filters
+  const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -238,7 +291,10 @@ export default function WorkspaceView() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const [interpLoading, setInterpLoading] = useState(false);
+  const [renderStatus, setRenderStatus] = useState<"queued" | "running" | null>(null);
+  const [renderProgress, setRenderProgress] = useState<{ done: number; total: number } | null>(null);
+  const [renderJobId, setRenderJobId] = useState<string | null>(null);
+  const interpLoading = renderStatus !== null;
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const interpUrlRef = useRef<string | null>(null);
@@ -251,16 +307,58 @@ export default function WorkspaceView() {
       return;
     }
     const id = setInterval(() => {
-      setLoadingVerbIdx((i) => (i + 1) % LOADING_VERBS.length);
-    }, 1400 * 3);
+      setLoadingVerbIdx(Math.floor(Math.random() * LOADING_VERBS.length));
+    }, 1400 * 2);
     return () => clearInterval(id);
   }, [interpLoading]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved);
+      console.log("LOADED", parsed);
+
+
+    if (parsed.timelineClips) {
+      setTimelineClips(parsed.timelineClips);
+    }
+
+    if (parsed.quality) {
+      setQuality(parsed.quality);
+    }
+   if (parsed.interpolatedGaps) {
+    setInterpolatedGaps(new Set(parsed.interpolatedGaps));
+  }
+
+  } catch (err) {
+    console.error("Failed to load workspace:", err);
+  }
+}, []);
+
+ useEffect(() => {
+  if (timelineClips.length === 0) return;
+
+  const data = {
+    timelineClips,
+    quality,
+    interpolatedGaps: [...interpolatedGaps],
+
+  };
+
+  console.log("Saving workspace");
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}, [timelineClips, quality, interpolatedGaps]);
 
   useEffect(() => {
     getSounds()
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
   }, []);
+
 const getSoundColor = (name: string, filename = ""): { color: string; glow: string } => {
   const lower = `${name} ${filename}`.toLowerCase();
   if (lower.includes("wind") || lower.includes("breeze"))
@@ -325,7 +423,7 @@ const getEmoji = (name: string, filename = "") => {
 
   // HUMAN
   if (lower.includes("snowsteps")) return "🥾❄️";
-  if (lower.includes("footsteps")) return "👣";
+if (lower.includes("footsteps")) return "/Footsteps_icon.png";
   if (lower.includes("keyboard")) return "⌨️";
 
   return "🎵";
@@ -389,7 +487,9 @@ const moveClip = (id: number, newStartSec: number) => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
     if (sorted.length < 2) return;
 
-    setInterpLoading(true);
+    setRenderStatus("queued");
+    setRenderProgress(null);
+    setRenderJobId(null);
     setInterpError(null);
     if (interpUrlRef.current) {
       URL.revokeObjectURL(interpUrlRef.current);
@@ -397,13 +497,32 @@ const moveClip = (id: number, newStartSec: number) => {
     }
     setInterpUrl(null);
     try {
-      const url = await render(buildTimelineSegments(sorted));
+      const url = await render(buildTimelineSegments(sorted), {
+        onJobId: (id) => setRenderJobId(id),
+        onProgress: (snap) => {
+          if (snap.status === "queued" || snap.status === "running") {
+            setRenderStatus(snap.status);
+            if (snap.progress) setRenderProgress(snap.progress);
+          }
+        },
+      });
       interpUrlRef.current = url;
       setInterpUrl(url);
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Render failed");
     } finally {
-      setInterpLoading(false);
+      setRenderStatus(null);
+      setRenderProgress(null);
+      setRenderJobId(null);
+    }
+  };
+
+  const cancelRunningRender = async () => {
+    if (!renderJobId) return;
+    try {
+      await cancelRender(renderJobId);
+    } catch {
+      /* polling loop will surface the resulting error */
     }
   };
 
@@ -456,8 +575,181 @@ const selectedPathPoints = sortedClips
   .filter(Boolean);
 
 const selectedPath = selectedPathPoints
-  .map((point) => `${point!.px},${point!.py}`)
+  .map((point) => `${point!.px},${point!.py-2}`)
   .join(" ");
+
+  const visiblePoints = useMemo(
+    () => placedPoints.filter((p) => !hiddenCategories.has(getCategoryKey(p.name, p.filename))),
+    [placedPoints, hiddenCategories]
+  );
+  const visiblePointsRef = useRef(visiblePoints);
+  useEffect(() => { visiblePointsRef.current = visiblePoints; }, [visiblePoints]);
+
+  const transformAttr = `translate(${panX} ${panY}) scale(${zoom})`;
+
+  const zoomBy = (factor: number, cx = 50, cy = 50) => {
+    const z = panRef.current.zoom;
+    const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z * factor));
+    if (next === z) return;
+    const latX = (cx - panRef.current.x) / z;
+    const latY = (cy - panRef.current.y) / z;
+    setZoom(next);
+    setPanX(cx - latX * next);
+    setPanY(cy - latY * next);
+  };
+  const goHome = () => { setPanX(0); setPanY(0); setZoom(1); };
+
+  const nearestDot = (latX: number, latY: number): SoundPoint | null => {
+    let best: SoundPoint | null = null;
+    let bestDist = PATH_SNAP_RADIUS;
+    for (const p of visiblePointsRef.current) {
+      const d = Math.hypot(p.x * 100 - latX, p.y * 100 - latY);
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return best;
+  };
+
+  // Global mouse handlers for panning and path drawing
+  useEffect(() => {
+    const screenToLatent = (clientX: number, clientY: number) => {
+      const el = explorerPlotRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const sx = ((clientX - rect.left) / rect.width) * 100;
+      const sy = ((clientY - rect.top) / rect.height) * 100;
+      const { x: px, y: py, zoom: z } = panRef.current;
+      return { lx: (sx - px) / z, ly: (sy - py) / z };
+    };
+    const onMove = (e: MouseEvent) => {
+      if (panDragRef.current) {
+        const el = explorerPlotRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const dx = ((e.clientX - panDragRef.current.startX) / rect.width) * 100;
+        const dy = ((e.clientY - panDragRef.current.startY) / rect.height) * 100;
+        setPanX(panDragRef.current.origPanX + dx);
+        setPanY(panDragRef.current.origPanY + dy);
+      } else if (isDrawingPathRef.current) {
+        const pt = screenToLatent(e.clientX, e.clientY);
+        if (!pt) return;
+        setDrawnPath((prev) => [...prev, { x: pt.lx, y: pt.ly }]);
+        const hit = nearestDot(pt.lx, pt.ly);
+        if (hit) {
+          const cur = drawnNodesRef.current;
+          if (cur.length === 0 || cur[cur.length - 1].id !== hit.id) {
+            setDrawnNodes([...cur, hit]);
+          }
+        }
+      }
+    };
+    const onUp = () => {
+      if (panDragRef.current) {
+        panDragRef.current = null;
+        document.body.style.cursor = "";
+      }
+      if (isDrawingPathRef.current) {
+        setIsDrawingPath(false);
+        const nodes = drawnNodesRef.current;
+        if (nodes.length >= 2) {
+          setHasDrawnPath(true);
+        } else {
+          setDrawnPath([]);
+          setDrawnNodes([]);
+        }
+      }
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  // Wheel zoom on explorer plot
+  useEffect(() => {
+    const el = explorerPlotRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const cx = ((e.clientX - rect.left) / rect.width) * 100;
+      const cy = ((e.clientY - rect.top) / rect.height) * 100;
+      zoomBy(e.deltaY < 0 ? 1.2 : 1 / 1.2, cx, cy);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const onPlotMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (pathModeRef.current) {
+      const el = explorerPlotRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const sx = ((e.clientX - rect.left) / rect.width) * 100;
+      const sy = ((e.clientY - rect.top) / rect.height) * 100;
+      const { x: px, y: py, zoom: z } = panRef.current;
+      const lx = (sx - px) / z;
+      const ly = (sy - py) / z;
+      setIsDrawingPath(true);
+      setDrawnPath([{ x: lx, y: ly }]);
+      const hit = nearestDot(lx, ly);
+      setDrawnNodes(hit ? [hit] : []);
+    } else {
+      panDragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origPanX: panRef.current.x,
+        origPanY: panRef.current.y,
+      };
+      document.body.style.cursor = "grabbing";
+    }
+  };
+
+  const cancelPath = () => {
+    setHasDrawnPath(false);
+    setDrawnPath([]);
+    setDrawnNodes([]);
+  };
+
+  const acceptPath = () => {
+    if (drawnNodes.length < 2) return;
+    const startSec = timelineClips.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+    const dur = DEFAULT_CLIP_DURATION_SEC;
+    const t = Date.now();
+    const newClips: TimelineClip[] = drawnNodes.map((p, i) => ({
+      id: t + i,
+      name: p.name,
+      filename: p.filename,
+      start: startSec + i * dur,
+      duration: dur,
+    }));
+    setTimelineClips((prev) => [...prev, ...newClips]);
+    setInterpUrl("");
+    setPathMode(false);
+    cancelPath();
+  };
+
+  const loadExampleTimeline = () => {
+    if (sounds.length < 2) return;
+
+    const pick = (keywords: string[]) =>
+      sounds.find(s =>
+        keywords.some(k => (s.name + " " + s.filename).toLowerCase().includes(k))
+      );
+
+    const a = pick(["camp_fire", "campfire", "fire"]) ?? sounds[0];
+    const b = pick(["keyboard"]) ?? sounds.find(s => s.filename !== a.filename) ?? sounds[1];
+
+    const t = Date.now();
+    setTimelineClips([
+      { id: t,     name: a.name, filename: a.filename, start: 0, duration: 5 },
+      { id: t + 1, name: b.name, filename: b.filename, start: 9, duration: 5 },
+    ]);
+    setInterpUrl("");
+    setShowHowToUse(false);
+  };
 
   const deleteClip = (id: number) => {
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
@@ -583,6 +875,46 @@ const selectedPath = selectedPathPoints
               <div className="how-to-tip">
                 <strong>Tip:</strong> Use <kbd>Ctrl</kbd> + scroll on the timeline to zoom in or out. The zoom level shows as a percentage next to the −/+ buttons.
               </div>
+
+              <hr className="how-to-divider" />
+
+              <div className="how-to-demo">
+                <p className="demo-audio-label">Try it — campfire · gap · keyboard</p>
+
+                <img
+                  src="/example-timeline.png"
+                  alt="Example timeline: campfire, gap, keyboard"
+                  className="demo-timeline-img"
+                />
+
+                <div className="how-to-demo-media">
+                  <img
+                    src="/demo-drag.gif"
+                    alt="Drag a sound card onto the timeline"
+                    className="demo-gif"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.style.display = "none";
+                      const placeholder = target.nextElementSibling as HTMLElement | null;
+                      if (placeholder) placeholder.style.display = "flex";
+                    }}
+                  />
+                  <div className="demo-gif-placeholder" style={{ display: "none" }}>
+                    demo-drag.gif · drop into public/ to show here
+                  </div>
+                </div>
+
+                <div className="demo-audio-row">
+                  <audio controls src="/example-output.wav" className="demo-audio-player" />
+                  <button
+                    className="how-to-demo-cta"
+                    onClick={loadExampleTimeline}
+                    disabled={sounds.length < 2}
+                  >
+                    Load Example →
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </>
@@ -596,12 +928,100 @@ const selectedPath = selectedPathPoints
               <h3>About GALI</h3>
               <button className="close-preview-btn" onClick={() => setShowAbout(false)}>✕</button>
             </div>
+            
             <div className="info-modal-body about-body">
-              <p className="about-tagline"><span style={{ color: "#1E90FF" }}>GALI</span> — Generative Audio Latent Interpolation</p>
-              <p>GALI is a tool for exploring and blending ambient soundscapes using generative AI. Sounds are encoded into a shared latent space using the <strong>CLAP</strong> audio-language model, letting you search by text, find acoustically similar sounds, and interpolate between them to create seamless audio transitions.</p>
-              <p>Place sounds on the timeline, define where crossfades and interpolations happen, and render a fully blended audio composition all in the browser.</p>
+
+              <p className="about-tagline">
+                <span style={{ color: "#1E90FF" }}>GALI</span>
+                {" "}— Generative Audio Latent Interpolation
+              </p>
+
+              <p className="about-subtitle">
+                Explore ambient soundscapes through AI-powered latent space navigation.
+              </p>
+
+              <div className="about-section">
+                <h4>Tech Stack</h4>
+
+                <div className="about-tech-grid">
+
+                  <div>
+                    <p className="about-tech-title">Frontend</p>
+                    <ul className="about-feature-list">
+                      <li>React</li>
+                      <li>TypeScript</li>
+                      <li>Vite</li>
+                      <li>Web Audio API</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="about-tech-title">Backend</p>
+                    <ul className="about-feature-list">
+                      <li>Python</li>
+                      <li>Flask</li>
+                      <li>Audio generation pipeline</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="about-tech-title">AI / Audio</p>
+                    <ul className="about-feature-list">
+                      <li>CLAP embeddings</li>
+                      <li>Latent-space interpolation</li>
+                    </ul>
+                  </div>
+
+                </div>
+              </div>
               <div className="about-divider" />
-              <p className="about-credits">Built as part of the Music Technology Group at <strong>Universitat Pompeu Fabra</strong></p>
+
+              <div className="about-section">
+                <h4>What is GALI?</h4>
+
+                <p>
+                  GALI is an experimental browser-based interface for exploring,
+                  blending and interpolating environmental audio using generative AI.
+                </p>
+
+                <p>
+                  Sounds are embedded into a shared latent space using the
+                  <strong> CLAP </strong>
+                  audio-language model, enabling semantic search,
+                  similarity discovery and seamless interpolation between soundscapes.
+                </p>
+              </div>
+
+              <div className="about-section">
+                <h4>Core Features</h4>
+
+                <ul className="about-feature-list">
+                  <li>AI-based sound similarity search</li>
+                  <li>Interactive latent space exploration</li>
+                  <li>Timeline-based audio composition</li>
+                  <li>Crossfades & generative interpolations</li>
+                  <li>Browser-native audio rendering workflow</li>
+                  <li>Local workspace auto-save</li>
+                </ul>
+              </div>
+
+              <div className="about-section">
+                <h4>Workflow</h4>
+
+                <p>
+                  Drag sounds into the timeline, create transitions between clips,
+                  explore neighbouring sounds in latent space, and render fully blended
+                  ambient compositions directly in the browser.
+                </p>
+              </div>
+
+              <div className="about-divider" />
+
+              <p className="about-credits">
+                Built as part of the Music Technology Group at
+                <strong> Universitat Pompeu Fabra</strong>
+              </p>
+
             </div>
           </div>
         </>
@@ -761,108 +1181,228 @@ const selectedPath = selectedPathPoints
 
         <div className="drop-panel">
           <h2>Latent Space Exploration</h2>
-          <p className="library-hint">Click to preview · Drag to timeline</p>
-          <div className="explorer-plot-wrap">
-            <div className="explorer-plot">
-              {/* Territory blobs */}
-              <svg className="explorer-territory-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <defs>
-                  <filter id="territory-blur" x="-80%" y="-80%" width="260%" height="260%">
-                    <feGaussianBlur stdDeviation="5" />
-                  </filter>
-                </defs>
-                {placedPoints.map((point) => {
-                  const { color } = getSoundColor(point.name, point.filename);
+          <p className="library-hint">
+            {pathMode
+              ? "Drag through sounds to trace a path · release to confirm"
+              : "Click to preview · Drag to timeline · Drag empty space to pan"}
+          </p>
+          <div className="explorer-body">
+            <div className={`explorer-plot-wrap${pathMode ? " path-mode" : ""}${panDragRef.current ? " panning" : ""}`}>
+              <div
+                className="explorer-plot"
+                ref={explorerPlotRef}
+                onMouseDown={onPlotMouseDown}
+              >
+                {/* Drawn path (live or pending review) */}
+                {(isDrawingPath || drawnPath.length > 0) && (
+                  <svg className="drawn-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <g transform={transformAttr}>
+                      <polyline
+                        className="drawn-path-line"
+                        points={drawnPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                      />
+                      {drawnNodes.map((n) => (
+                        <circle key={n.id} className="drawn-path-node" cx={n.x * 100} cy={n.y * 100} r="2.4" />
+                      ))}
+                    </g>
+                  </svg>
+                )}
+
+                {selectedPathPoints.length >= 2 && (
+                  <svg
+                    className="interpolation-path-svg"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                  >
+                    <defs>
+                      <marker
+                        id="arrow-head"
+                        markerWidth="6"
+                        markerHeight="6"
+                        refX="5"
+                        refY="3"
+                        orient="auto"
+                      >
+                        <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
+                      </marker>
+                    </defs>
+                    <g transform={transformAttr}>
+                      <polyline
+                        className="interpolation-path ready"
+                        points={selectedPath}
+                        markerEnd="url(#arrow-head)"
+                        onClick={() => {
+                          if (!interpUrl) return;
+                          explorerPlayer.pause();
+                          previewPlayer.pause();
+                          setExplorerSelected(null);
+                          setPathPreviewing(true);
+                          interpPlayer.seek(0);
+                          interpPlayer.play(interpUrl);
+                        }}
+                      />
+                    </g>
+                  </svg>
+                )}
+
+                {visiblePoints.map((point) => {
+                  const { color, glow } = getSoundColor(point.name, point.filename);
+                  const dx = point.px * zoom + panX;
+                  const dy = point.py * zoom + panY;
+                  if (dx < -5 || dx > 105 || dy < -5 || dy > 105) return null;
                   return (
-                    <circle
+                    <div
                       key={point.id}
-                      cx={point.px}
-                      cy={point.py}
-                      r="7"
-                      fill={color}
-                      opacity="0.06"
-                      filter="url(#territory-blur)"
-                    />
+                      className={`dot${explorerSelected?.id === point.id ? " selected" : ""}${explorerSelected?.id === point.id && explorerPlayer.isPlaying ? " playing" : ""}`}
+                      style={{ left: `${dx}%`, top: `${dy}%`, "--dot-color": color, "--dot-glow": glow } as React.CSSProperties}
+                      draggable={!pathMode}
+                      onMouseDown={(e) => { e.stopPropagation(); }}
+                      onDragStart={() => { dragSoundRef.current = point; }}
+                      onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (pathMode) return;
+                        if (explorerSelected?.id === point.id) {
+                          if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
+                        } else {
+                          explorerPlayer.pause();
+                          interpPlayer.pause();
+                          setPathPreviewing(false);
+                          setExplorerSelected(point);
+                          explorerPlayer.play(getSoundUrl(point.filename));
+                        }
+                      }}
+                      title={point.name}
+                    >
+                      <span className="dot-marker" />
+                      <span className="dot-label">{point.name}</span>
+                    </div>
                   );
                 })}
-              </svg>
+              </div>
 
-{interpUrl && selectedPathPoints.length >= 2 && (
-                <svg
-                  className="interpolation-path-svg"
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                >
-                  <defs>
-                    <marker
-                      id="arrow-head"
-                      markerWidth="6"
-                      markerHeight="6"
-                      refX="5"
-                      refY="3"
-                      orient="auto"
-                    >
-                      <path d="M0,0 L6,3 L0,6 Z" className="arrow-head" />
-                    </marker>
-                  </defs>
-
-                  <polyline
-                    className="interpolation-path ready"
-                    points={selectedPath}
-                    markerEnd="url(#arrow-head)"
-                    onClick={() => {
-                      interpPlayer.seek(0);
-                      interpPlayer.play(interpUrl);
-                    }}
-                  />
-                </svg>
+              {explorerSelected && (
+                <div className="sound-preview-panel explorer-floating-preview">
+                  <div className="sound-preview-header">
+                    <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
+                    <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
+                  </div>
+                  <div className="preview-controls">
+                    <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename)); }} title="Restart">↺</button>
+                    <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename))}>
+                      {explorerPlayer.isPlaying ? "⏸" : "▶"}
+                    </button>
+                    <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
+                    <span className="audio-time">{fmt(explorerPlayer.currentTime)} / {fmt(explorerPlayer.duration)}</span>
+                  </div>
+                </div>
               )}
 
-              {placedPoints.map((point) => {
-                const { color, glow } = getSoundColor(point.name, point.filename);
-                return (
-                  <div
-                    key={point.id}
-                    className={`dot${explorerSelected?.id === point.id ? " selected" : ""}${explorerSelected?.id === point.id && explorerPlayer.isPlaying ? " playing" : ""}`}
-                    style={{ left: `${point.px}%`, top: `${point.py}%`, "--dot-color": color, "--dot-glow": glow } as React.CSSProperties}
-                    draggable
-                    onDragStart={() => { dragSoundRef.current = point; }}
-                    onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
-                    onClick={() => {
-                      if (explorerSelected?.id === point.id) {
-                        if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
-                      } else {
-                        explorerPlayer.pause();
-                        setExplorerSelected(point);
-                        explorerPlayer.play(getSoundUrl(point.filename));
-                      }
-                    }}
-                    title={point.name}
-                  >
-                    <span className="dot-marker" />
-                    <span className="dot-label">{point.name}</span>
+              {pathPreviewing && interpUrl && !explorerSelected && (
+                <div className="sound-preview-panel explorer-floating-preview">
+                  <div className="sound-preview-header">
+                    <span className="preview-name">↝ Interpolated path</span>
+                    <button className="close-preview-btn" onClick={() => { interpPlayer.pause(); setPathPreviewing(false); }}>✕</button>
                   </div>
-                );
-              })}
+                  <div className="preview-controls">
+                    <button className="preview-play-btn" onClick={() => { interpPlayer.seek(0); interpPlayer.play(interpUrl); }} title="Restart">↺</button>
+                    <button className="preview-play-btn" onClick={() => interpPlayer.isPlaying ? interpPlayer.pause() : interpPlayer.play(interpUrl)}>
+                      {interpPlayer.isPlaying ? "⏸" : "▶"}
+                    </button>
+                    <input className="audio-scrubber" type="range" min={0} max={interpPlayer.duration || 1} step={0.01} value={interpPlayer.currentTime} onChange={(e) => interpPlayer.seek(Number(e.target.value))} />
+                    <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
-          </div>
-          {explorerSelected && (
-            <div className="sound-preview-panel">
-              <div className="sound-preview-header">
-                <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
-                <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
+            <div className="explorer-tools">
+              <div className="explorer-tool-row">
+                <button className="zoom-btn" onClick={() => zoomBy(1.5)} disabled={zoom >= MAX_ZOOM - 1e-6} title="Zoom in">+</button>
+                <button className="zoom-btn" onClick={() => zoomBy(1 / 1.5)} disabled={zoom <= MIN_ZOOM + 1e-6} title="Zoom out">−</button>
+                <button className="zoom-btn" onClick={goHome} title="Reset view">⌂</button>
               </div>
-              <div className="preview-controls">
-                <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename)); }} title="Restart">↺</button>
-                <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename))}>
-                  {explorerPlayer.isPlaying ? "⏸" : "▶"}
-                </button>
-                <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
-                <span className="audio-time">{fmt(explorerPlayer.currentTime)} / {fmt(explorerPlayer.duration)}</span>
+              <button
+                className={`explorer-path-btn${pathMode ? " active" : ""}`}
+                onClick={() => { if (pathMode) { setPathMode(false); cancelPath(); } else { setPathMode(true); } }}
+                title="Trace a path through the space"
+              >
+                {pathMode ? "Cancel path" : "✎ Trace path"}
+              </button>
+
+              <div className="explorer-tool-divider" />
+
+              <div className="explorer-section-label">Filters</div>
+              <div className="explorer-filter-chips">
+                {CATEGORY_DEFS.map((c) => {
+                  const hidden = hiddenCategories.has(c.key);
+                  return (
+                    <button
+                      key={c.key}
+                      className={`filter-chip${hidden ? " off" : ""}`}
+                      style={{ "--chip-color": c.color } as React.CSSProperties}
+                      onClick={() => {
+                        setHiddenCategories((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(c.key)) next.delete(c.key); else next.add(c.key);
+                          return next;
+                        });
+                      }}
+                      title={`${hidden ? "Show" : "Hide"} ${c.label}`}
+                    >
+                      <span className="filter-chip-emoji">{c.emoji}</span>
+                      <span className="filter-chip-label">{c.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+
+              <div className="explorer-tool-divider" />
+
+              <div className="explorer-section-label">Overview</div>
+              <svg
+                className="explorer-minimap"
+                viewBox="-6 -6 112 112"
+                preserveAspectRatio="none"
+                onClick={(e) => {
+                  const r = (e.currentTarget as unknown as SVGSVGElement).getBoundingClientRect();
+                  // Map click into latent coords using the same padded viewBox (-6..106 → 0..100 of data).
+                  const cx = (((e.clientX - r.left) / r.width) * 112) - 6;
+                  const cy = (((e.clientY - r.top) / r.height) * 112) - 6;
+                  setPanX(50 - cx * zoom);
+                  setPanY(50 - cy * zoom);
+                }}
+              >
+                {placedPoints.map((p) => {
+                  const cat = getCategoryKey(p.name, p.filename);
+                  const color = CATEGORY_DEFS.find((c) => c.key === cat)?.color ?? "#58a6ff";
+                  const muted = hiddenCategories.has(cat);
+                  return (
+                    <circle key={p.id} cx={p.px} cy={p.py} r="1.4" fill={color} opacity={muted ? 0.18 : 0.85} />
+                  );
+                })}
+                <rect
+                  className="minimap-viewport"
+                  x={-panX / zoom}
+                  y={-panY / zoom}
+                  width={100 / zoom}
+                  height={100 / zoom}
+                />
+              </svg>
+
+              {hasDrawnPath && drawnNodes.length >= 2 && (
+                <>
+                  <div className="explorer-tool-divider" />
+                  <div className="explorer-section-label">Drawn path · {drawnNodes.length} sounds</div>
+                  <div className="drawn-path-actions">
+                    <button className="btn-secondary" onClick={cancelPath}>Cancel</button>
+                    <button className="btn-primary" onClick={acceptPath}>Add to timeline</button>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </div>
+
         </div>
       </div>
 
@@ -893,6 +1433,12 @@ const selectedPath = selectedPathPoints
                 title="Zoom in"
               >+</button>
             </div>
+            <button
+              className="timeline-clear-btn"
+              onClick={() => setTimelineClips([])}
+              disabled={timelineClips.length === 0}
+              title="Clear timeline"
+            >Clear</button>
             {interpError && <p className="interp-error">{interpError}</p>}
             {interpUrl && !interpLoading && (
               <div className="interp-result">
@@ -922,20 +1468,45 @@ const selectedPath = selectedPathPoints
             )}
           </div>
           <div className="timeline-header-right">
-            <button
-              className={`interpolate-btn${interpLoading ? " loading" : ""}`}
-              onClick={runInterpolation}
-              disabled={!canInterpolate || interpLoading}
-            >
-              {interpLoading ? (
-                <>
-                  {LOADING_VERBS[loadingVerbIdx]}
-                  <span className="loading-dots" aria-hidden="true" />
-                </>
-              ) : (
-                "Interpolate"
+            <div className="render-control">
+              {interpLoading && renderJobId && (
+                <button
+                  type="button"
+                  className="render-cancel-btn"
+                  onClick={cancelRunningRender}
+                  title="Cancel render"
+                >
+                  Cancel
+                </button>
               )}
-            </button>
+              <button
+                className={`interpolate-btn${interpLoading ? " loading" : ""}`}
+                onClick={runInterpolation}
+                disabled={!canInterpolate || interpLoading}
+              >
+                {renderStatus === "queued" && (
+                  <>
+                    Queued
+                    <span className="loading-dots" aria-hidden="true" />
+                  </>
+                )}
+                {renderStatus === "running" && (
+                  <>
+                    {LOADING_VERBS[loadingVerbIdx]}
+                    <span className="loading-dots" aria-hidden="true" />
+                  </>
+                )}
+                {!renderStatus && "Interpolate"}
+                {renderStatus === "running" && renderProgress && renderProgress.total > 0 && (
+                  <span
+                    className="interpolate-btn-fill"
+                    style={{
+                      width: `${(renderProgress.done / Math.max(1, renderProgress.total)) * 100}%`,
+                    }}
+                  />
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1042,7 +1613,17 @@ const selectedPath = selectedPathPoints
                     setDragStartWidth(timelineWidth);
                     setSelectedClipId(null);
                   }}
-                  onDragEnd={() => { setDraggingId(null); resetDragState(); }}
+                  onDragEnd={(e) => {
+                    setDraggingId(null);
+                    resetDragState();
+                    const scroll = scrollRef.current;
+                    if (!scroll) return;
+                    const r = scroll.getBoundingClientRect();
+                    const outside =
+                      e.clientX < r.left || e.clientX > r.right ||
+                      e.clientY < r.top || e.clientY > r.bottom;
+                    if (outside) deleteClip(clip.id);
+                  }}
                   onDrag={(e) => {
                     if (e.clientX <= 0) return;
                     const timelineLeft = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
@@ -1103,6 +1684,10 @@ const selectedPath = selectedPathPoints
             })}
           </div>
         </div>
+      </div>
+      
+      <div className="autosave-indicator">
+        ● Auto-saved locally
       </div>
     </div>
   );
