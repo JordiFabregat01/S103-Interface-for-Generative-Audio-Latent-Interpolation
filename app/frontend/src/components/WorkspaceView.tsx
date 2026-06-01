@@ -315,6 +315,13 @@ export default function WorkspaceView() {
   const interpLoading = renderStatus !== null;
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
+  const [renderLibrary, setRenderLibrary] = useState<
+    {
+      id: number;
+      name: string;
+      url: string;
+    }[]
+  >([]);
   const interpUrlRef = useRef<string | null>(null);
   const [interpolatedGaps, setInterpolatedGaps] = useState<Set<string>>(new Set());
   const [loadingVerbIdx, setLoadingVerbIdx] = useState(0);
@@ -529,8 +536,22 @@ const moveClip = (id: number, newStartSec: number) => {
           }
         },
       });
+
       interpUrlRef.current = url;
       setInterpUrl(url);
+
+      const firstClip = sorted[0];
+      const lastClip = sorted[sorted.length - 1];
+
+      setRenderLibrary(prev => [
+        {
+          id: Date.now(),
+          name: `${firstClip.name} → ${lastClip.name}`,
+          url,
+        },
+        ...prev,
+      ]);
+
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Render failed");
     } finally {
@@ -1493,13 +1514,40 @@ const selectedPath = selectedPathPoints
                   onChange={(e) => interpPlayer.seek(Number(e.target.value))}
                 />
                 <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
-                <a
-                  href={interpUrl}
-                  download={`interpolation-${Date.now()}.wav`}
-                  className="download-btn"
-                >
-                  Download WAV
-                </a>
+              </div>
+            )}
+            {renderLibrary.length > 0 && (
+              <div className="render-library">
+                <h3>🎵 Render Library</h3>
+
+                {renderLibrary.map((render) => (
+                  <div key={render.id} className="render-library-item">
+
+                    <span>{render.name}</span>
+
+                    <div className="render-library-actions">
+
+                      <button
+                        className="preview-play-btn"
+                        onClick={() => {
+                          previewPlayer.pause();
+                          interpPlayer.play(render.url);
+                        }}
+                      >
+                        ▶
+                      </button>
+
+                      <a
+                        href={render.url}
+                        download={`${render.name}.wav`}
+                        className="download-btn"
+                      >
+                        Download
+                      </a>
+
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
