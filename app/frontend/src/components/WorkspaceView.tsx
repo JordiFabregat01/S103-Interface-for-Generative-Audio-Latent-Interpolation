@@ -105,6 +105,46 @@ export default function WorkspaceView() {
   const autoScrollRaf = useRef<number | null>(null);
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
+  const [libraryWidth, setLibraryWidth] = useState(42);
+const [timelineHeight, setTimelineHeight] = useState(180);
+
+const startHorizontalResize = (e: React.MouseEvent) => {
+  e.preventDefault();
+
+  const onMove = (ev: MouseEvent) => {
+    const width = window.innerWidth;
+    const newPercent = (ev.clientX / width) * 100;
+    setLibraryWidth(Math.min(65, Math.max(25, newPercent)));
+  };
+
+  const onUp = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+};
+
+const startTimelineResize = (e: React.MouseEvent) => {
+  e.preventDefault();
+
+  const startY = e.clientY;
+  const startHeight = timelineHeight;
+
+  const onMove = (ev: MouseEvent) => {
+    const diff = startY - ev.clientY;
+    setTimelineHeight(Math.min(360, Math.max(120, startHeight + diff)));
+  };
+
+  const onUp = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+};
   //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
   const [showHowToUse, setShowHowToUse] = useState(false);
@@ -1023,7 +1063,9 @@ const selectedPath = selectedPathPoints
         </>
       )}
 
-      <div className="workspace-layout">
+      <div className="workspace-layout"   style={{
+    gridTemplateColumns: `${libraryWidth}% 8px ${100 - libraryWidth}%`,
+  }}>
         <div className="library-panel">
           <h2>Sound Library</h2>
           <p className="library-hint">Click to preview · Drag to timeline</p>
@@ -1156,7 +1198,10 @@ const selectedPath = selectedPathPoints
             </div>
           )}
         </div>
-
+<div
+  className="vertical-resize-handle"
+  onMouseDown={startHorizontalResize}
+/>
         {contextMenu && (
           <div
             className="sound-context-menu"
@@ -1410,8 +1455,11 @@ const selectedPath = selectedPathPoints
 
         </div>
       </div>
-
-      <div className="timeline-panel">
+      <div
+        className="horizontal-resize-handle"
+        onMouseDown={startTimelineResize}
+      />
+      <div className="timeline-panel"  style={{ height: `${timelineHeight}px` }}>
         <div className="timeline-header">
           <div className="timeline-header-left">
             <h2>Timeline</h2>
