@@ -107,6 +107,7 @@ export default function WorkspaceView() {
   const [quality, setQuality] = useState(8);
   //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [showHowToUse, setShowHowToUse] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
@@ -189,6 +190,23 @@ export default function WorkspaceView() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      "light-theme",
+      theme === "light"
+    );
+
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   // Resize handle drag via mouse events (more reliable than HTML drag for edge resizing)
   useEffect(() => {
@@ -329,6 +347,10 @@ export default function WorkspaceView() {
     if (parsed.quality) {
       setQuality(parsed.quality);
     }
+
+    if (parsed.theme) {
+      setTheme(parsed.theme);
+    }
    if (parsed.interpolatedGaps) {
     setInterpolatedGaps(new Set(parsed.interpolatedGaps));
   }
@@ -345,6 +367,7 @@ export default function WorkspaceView() {
     timelineClips,
     quality,
     interpolatedGaps: [...interpolatedGaps],
+    theme,
 
   };
 
@@ -815,6 +838,19 @@ const selectedPath = selectedPathPoints
           <option value={4}>Fast</option>
           <option value={8}>Balanced</option>
           <option value={16}>High</option>
+        </select>
+      </div>
+      <div className="theme-selector">
+        <label>Theme</label>
+
+        <select
+          value={theme}
+          onChange={(e) =>
+            setTheme(e.target.value as "dark" | "light")
+          }
+        >
+          <option value="dark">🌙 Dark</option>
+          <option value="light">☀️ Light</option>
         </select>
       </div>
     </div>

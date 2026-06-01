@@ -1266,6 +1266,9 @@ button {
   align-items: center;
   gap: 10px;
 }
+.theme-selector {
+  margin-top: 15px;
+}
 
 .quality-selector label {
   color: var(--text-2);
@@ -2085,3 +2088,30 @@ kbd {
 .path-modal-actions .btn-primary:hover {
   background: rgba(110, 231, 212, 0.32);
 }
+
+/* ─── Light Theme Improvements ─────────────────────────────── */
+
+.light-theme .workspace-page h1 {
+  color: #0f172a;
+}
+
+.light-theme .interpolate-btn {
+  background: #1e90ff;
+  color: white;
+  border-color: #1e90ff;
+}
+
+.light-theme .library-panel,
+.light-theme .drop-panel,
+.light-theme .timeline-panel {
+  box-shadow: 0 2px 8px rgba(15,23,42,0.08);
+}
+
+.light-theme .timeline-empty {
+  color: #64748b;
+}
+
+.light-theme .app-header {
+  border-bottom: 1px solid #dbe2ea;
+}
+
