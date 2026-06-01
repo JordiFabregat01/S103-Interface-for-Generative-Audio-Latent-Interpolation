@@ -1055,36 +1055,33 @@ const selectedPath = selectedPathPoints
                 <p className="library-hint">No results for "{searchQuery}"</p>
               )}
               {(() => {
-                const renderCard = (sound: SoundPoint, extra = "") => (
-                  <div
-                    key={sound.id}
-                    className={`sound-card${selectedSound?.id === sound.id ? " selected" : ""}${extra ? ` ${extra}` : ""}`}
-                    draggable
-                    onClick={() => {
-                      if (selectedSound?.id === sound.id) {
-                        previewPlayer.pause();
-                        setSelectedSound(null);
-                      } else {
-                        interpPlayer.pause();
-                        setSelectedSound(sound);
-                        previewPlayer.play(getSoundUrl(sound.filename));
-                      }
-                    }}
-                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, sound }); }}
-                    onDragStart={() => { dragSoundRef.current = sound; }}
-                    onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
-                  >
-                    <div className="sound-image">
-                    <img
-                      src={getImage(sound.name)}
-                      alt={sound.name}
-                      className="sound-icon"
-                    />
-                  </div>
-                    <p>{sound.name}</p>
-                  </div>
-                );
-
+              const renderCard = (sound: SoundPoint, extra = "") => (
+              <div
+                key={sound.id}
+                className={`sound-card${selectedSound?.id === sound.id ? " selected" : ""}${extra ? ` ${extra}` : ""}`}
+                style={{
+                  backgroundImage: `url(${getImage(sound.name, sound.filename)})`,
+                }}
+                draggable
+                onClick={() => {
+                  if (selectedSound?.id === sound.id) {
+                    previewPlayer.pause();
+                    setSelectedSound(null);
+                  } else {
+                    interpPlayer.pause();
+                    setSelectedSound(sound);
+                    previewPlayer.play(getSoundUrl(sound.filename));
+                  }
+                }}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, sound }); }}
+                onDragStart={() => { dragSoundRef.current = sound; }}
+                onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
+              >
+                <div className="sound-overlay">
+                  <p>{sound.name}</p>
+                </div>
+              </div>
+            );
                 if (similarTo && searchResults !== null) {
                   const similarIds = new Set(searchResults.map((s) => s.id));
                   const others = sounds.filter((s) => !similarIds.has(s.id) && s.id !== similarTo.id);
