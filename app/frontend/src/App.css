@@ -2085,3 +2085,28 @@ kbd {
 .path-modal-actions .btn-primary:hover {
   background: rgba(110, 231, 212, 0.32);
 }
+
+.sound-icon {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.preview-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clip-label {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+
+.timeline-sound-icon {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}

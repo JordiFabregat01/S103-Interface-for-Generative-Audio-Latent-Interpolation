@@ -380,51 +380,47 @@ const getSoundColor = (name: string, filename = ""): { color: string; glow: stri
   return { color: "#58a6ff", glow: "rgba(88, 166, 255, 0.45)" };
 };
 
-const getEmoji = (name: string, filename = "") => {
+const getImage = (name: string, filename = "") => {
   const lower = `${name} ${filename}`.toLowerCase();
 
   // WIND
-  if (lower.includes("articwind")) return "🌬️";
-  if (lower.includes("cornfieldwind")) return "🌾💨";
-  if (lower.includes("Intense")) return "🍃💨";
-  if (lower.includes("breeze")) return "🍃";
-  if (lower.includes("wind")) return "💨";
+  if (lower.includes("articwind")) return "/Articwind.png";
+  if (lower.includes("cornfieldwind")) return "Cornfield.png";
+  if (lower.includes("breeze")) return "/Breeze.png";
+  if (lower.includes("wind")) return "/RainWind.png";
 
   // RAIN / STORM
-  if (lower.includes("icestorm")) return "🧊⛈️";
-  if (lower.includes("thunder")) return "⚡";
-  if (lower.includes("storm")) return "⛈️";
-  if (lower.includes("heavyrain")) return "🌧️💧";
-  if (lower.includes("rain")) return "☔";
+  if (lower.includes("icestorm")) return "/IceStorm.png";
+  if (lower.includes("thunder")) return "/Thunderstorm.png";
+  if (lower.includes("leaves")) return "/RainLeaves.png";
+  if (lower.includes("rain")) return "/Rain.png";
+
 
   // WATER
-  if (lower.includes("waterfall")) return "💦⬇️";
-  if (lower.includes("waterrocks")) return "🫧🪨";
-  if (lower.includes("underwater")) return "🐠";
-  if (lower.includes("slowriver")) return "🏞️";
-  if (lower.includes("river")) return "🫧";
-  if (lower.includes("waves")) return "🌊〰️";
-  if (lower.includes("sea")) return "🌊";
-  if (lower.includes("water")) return "💧";
+  if (lower.includes("waterfall")) return "/Waterfall.png";
+  if (lower.includes("wateronrocks")) return "/Wateronrocks.png";
+  if (lower.includes("underwater")) return "/Underwater.png";
+  if (lower.includes("river")) return "/River.png";
+  if (lower.includes("waves")) return "/Seawave.png";
+  if (lower.includes("breakingwater")) return "/BreakingWater.png";
 
   // FIRE
-  if (lower.includes("camp_fire")) return "🔥🌲";
-  if (lower.includes("fire")) return "🔥";
+  if (lower.includes("camp_fire")) return "/Campfire.png";
 
   // BIRDS / ANIMALS
-  if (lower.includes("seagull")) return "🕊️";
-  if (lower.includes("loon")) return "🌙";
-  if (lower.includes("bird")) return "🐦";
+  if (lower.includes("seagull")) return "/Seagull.png";
+  if (lower.includes("loon")) return "/LoonCall.png";
+  if (lower.includes("bird")) return "/BirdAmbience.png";
 
   // INSECTS
-  if (lower.includes("bees")) return "🐝";
-  if (lower.includes("cicada")) return "🪲";
-  if (lower.includes("cricket")) return "🦗";
+  if (lower.includes("bees")) return "/Bee.png";
+  if (lower.includes("cicada")) return "/Cicada.png";
+  if (lower.includes("cricket")) return "/Crickets.png";
 
   // HUMAN
-  if (lower.includes("snowsteps")) return "🥾❄️";
+  if (lower.includes("snowsteps")) return "/Snowstep.png";
 if (lower.includes("footsteps")) return "/Footsteps_icon.png";
-  if (lower.includes("keyboard")) return "⌨️";
+  if (lower.includes("keyboard")) return "/Keyboard.png";
 
   return "🎵";
 };
@@ -1078,7 +1074,13 @@ const selectedPath = selectedPathPoints
                     onDragStart={() => { dragSoundRef.current = sound; }}
                     onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
                   >
-                    <div className="sound-image">{getEmoji(sound.name)}</div>
+                    <div className="sound-image">
+                    <img
+                      src={getImage(sound.name)}
+                      alt={sound.name}
+                      className="sound-icon"
+                    />
+                  </div>
                     <p>{sound.name}</p>
                   </div>
                 );
@@ -1103,7 +1105,13 @@ const selectedPath = selectedPathPoints
           {selectedSound && (
             <div className="sound-preview-panel">
               <div className="sound-preview-header">
-                <span className="preview-name">{getEmoji(selectedSound.name)} {selectedSound.name}</span>
+                <span className="preview-name">  <img
+                  src={getImage(selectedSound.name)}
+                  alt={selectedSound.name}
+                  className="sound-icon"
+                />
+                {selectedSound.name}
+                </span>
                 <button className="close-preview-btn" onClick={() => { previewPlayer.pause(); setSelectedSound(null); }}>✕</button>
               </div>
               <div className="preview-controls">
@@ -1284,7 +1292,7 @@ const selectedPath = selectedPathPoints
               {explorerSelected && (
                 <div className="sound-preview-panel explorer-floating-preview">
                   <div className="sound-preview-header">
-                    <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
+                    <span className="preview-name">{getImage(explorerSelected.name)} {explorerSelected.name}</span>
                     <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
                   </div>
                   <div className="preview-controls">
@@ -1651,14 +1659,16 @@ const selectedPath = selectedPathPoints
                       }}
                     />
                   )}
-
                 <div className="clip-label">
-                  <span className="clip-emoji">
-                    {getEmoji(clip.name, clip.filename)}
-                  </span>
+                  <img
+                    src={getImage(clip.name, clip.filename)}
+                    alt={clip.name}
+                    className="timeline-sound-icon"
+                  />
 
                   <span>{clip.name}</span>
                 </div>
+                
                   {isSelected && (
                     <span className="clip-duration-badge">{clip.duration.toFixed(2)}s</span>
                   )}
