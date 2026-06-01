@@ -104,8 +104,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 2fr 3fr;
-  gap: 12px;
+  gap: 0;
 }
 
 /* ─── Panel Base ─────────────────────────────────────────────── */
@@ -637,8 +636,13 @@
 
 /* ─── Ruler ──────────────────────────────────────────────────── */
 .timeline-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: visible;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   scrollbar-width: thin;
   scrollbar-color: var(--border-2) transparent;
 }
@@ -678,7 +682,8 @@
 /* ─── Timeline Track ─────────────────────────────────────────── */
 .timeline {
   position: relative;
-  height: 100px;
+  height: 100%;
+  min-height: 100px;
   background:
     repeating-linear-gradient(
       to right,
@@ -2144,3 +2149,34 @@ kbd {
   background-repeat: no-repeat;
 }
 
+.vertical-resize-handle {
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+  border-radius: 4px;
+}
+
+.vertical-resize-handle:hover {
+  background: rgba(88, 166, 255, 0.35);
+}
+
+.horizontal-resize-handle {
+  height: 8px;
+  cursor: row-resize;
+  background: transparent;
+  border-radius: 4px;
+}
+
+.horizontal-resize-handle:hover {
+  background: rgba(88, 166, 255, 0.35);
+}
+
+.timeline-panel {
+  display: flex;
+  flex-direction: column;
+
+  min-height: 120px;
+  max-height: 360px;
+
+  overflow: hidden;
+}
