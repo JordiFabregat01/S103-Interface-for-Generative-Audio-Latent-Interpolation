@@ -266,6 +266,7 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
+  width: 100%;
 }
 
 .sound-card {
@@ -277,7 +278,8 @@
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
   user-select: none;
-    height: 80px;
+  height: 80px;
+  width: 100%;
 }
 
 .sound-card:hover {
@@ -2111,7 +2113,6 @@ kbd {
 }
 
 .sound-card {
-  aspect-ratio: 3/1;
   position: relative;
   background-size: contain;
   background-position: center;
