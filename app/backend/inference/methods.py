@@ -539,15 +539,34 @@ def build_unified_timeline_schedule(
 
         elif seg.type == "silence":
             atom_count = max(1, int(round(seg.duration / hop_sec)))
-            ctx_tensor = _neighbor_clip_context(segs, idx, -1, engine)
-            if ctx_tensor is None:
-                ctx_tensor = _neighbor_clip_context(segs, idx, +1, engine)
-            if ctx_tensor is None:
+            prev_ctx = _neighbor_clip_context(segs, idx, -1, engine)
+            next_ctx = _neighbor_clip_context(segs, idx, +1, engine)
+
+            # Silence is always muted (zero-filled post-decode). The atoms
+            # underneath are still generated to keep the autoregressive past
+            # buffer warm; the context we feed them controls what timbre flows
+            # into the *next* clip. Splitting a between-clips gap into a first
+            # half of the preceding sound and a second half of the following
+            # sound means the next clip's AR history is already its own timbre,
+            # so no remnant of the previous sound bleeds in when its volume
+            # comes back up (generation has variance, so an audible tail would
+            # otherwise leak across the mute boundary).
+            if prev_ctx is not None and next_ctx is not None:
+                half = atom_count // 2
+                schedule.extend([prev_ctx] * half)
+                schedule.extend([next_ctx] * (atom_count - half))
+            elif prev_ctx is not None:
+                # Trailing silence: nothing follows, so stay on the preceding sound.
+                schedule.extend([prev_ctx] * atom_count)
+            elif next_ctx is not None:
+                # Leading silence: warm the buffer with the following sound.
+                schedule.extend([next_ctx] * atom_count)
+            else:
                 raise ValueError(
                     "silence segment has no neighboring clip or interpolation "
                     "to inherit context from; silence-only timelines bypass SCAPES"
                 )
-            schedule.extend([ctx_tensor] * atom_count)
+
             start_sample = atom_offset * engine.hop_samples
             end_sample = start_sample + int(round(seg.duration * engine.sr))
             silence_ranges.append(_SilenceRange(start_sample, end_sample))
