@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Callable, List, Optional, Tuple
 
 import soundfile as sf
 import torch
-from inference.models import InterpolationElement, RenderRequest
+from inference.models import InterpolationElement, InterpolationSegment, RenderRequest
 from inference.embeddings import resolve_audio_file
 from inference.scapes_runtime import (
     CLAPWrapper,
@@ -19,7 +20,11 @@ from inference.scapes_runtime import (
     load_flow_model,
     load_local_encoder,
 )
-from inference.interpolation import EncodedSource, interpolate_clips
+from inference.interpolation import (
+    EncodedSource,
+    build_interpolation_context_schedule,
+    request_from_clip_geometry,
+)
 from inference.source_cache import (
     encode_and_cache,
     get_or_encode,
@@ -258,72 +263,12 @@ def _waveform_to_wav_bytes(audio_tensor: torch.Tensor, sample_rate: int) -> byte
     return buffer.getvalue()
 
 
-def _run_interpolation(
-    request: InterpolationElement,
-    *,
-    cancel_event: Optional[threading.Event] = None,
-    progress: Optional[Callable[[int, int], None]] = None,
-):
-    """Drive ``interpolate_clips`` for an :class:`InterpolationElement` payload."""
-    engine = get_inference_engine()
-
-    src_a = get_or_encode(engine, request.audio1)
-    src_b = get_or_encode(engine, request.audio2)
-
-    start_time = time.time()
-    result = interpolate_clips(
-        engine,
-        src_a,
-        src_b,
-        request.distance_sec,
-        adjacent_duration_sec=request.duration_sec,
-        a_anchor_sec=request.a_anchor_sec,
-        b_anchor_sec=request.b_anchor_sec,
-        stay_time_sec=request.stay_time_sec,
-        stickyness=request.stickyness,
-        nfe=request.nfe,
-        decode_method=request.decode_method,
-        context_mode_override=request.context_mode,
-        cancel_event=cancel_event,
-        progress=progress,
-    )
-    elapsed = time.time() - start_time
-    logger.info(
-        "interpolation finished in %.2fs (timeline_size=%d, context_mode=%s, "
-        "duration_sec=%.3f)",
-        elapsed,
-        result.timeline_size,
-        result.context_mode,
-        result.duration_sec,
-    )
-    return result
-
-
-def _render_interpolation_tensor(
-    request: InterpolationElement,
-    *,
-    cancel_event: Optional[threading.Event] = None,
-    progress: Optional[Callable[[int, int], None]] = None,
-) -> Tuple[torch.Tensor, int]:
-    """Thin wrapper around ``_run_interpolation`` returning ``(audio[C, T], sample_rate)``.
-
-    Needed by ``render_timeline_audio``.
-    """
-    result = _run_interpolation(request, cancel_event=cancel_event, progress=progress)
-    audio = result.audio
-    if audio.dim() == 3:
-        audio = audio.squeeze(0)
-    if audio.dim() != 2:
-        raise ValueError(
-            f"Expected interpolation audio to be 2D [C, T], got shape {tuple(audio.shape)}"
-        )
-    return audio, result.sample_rate
-
-
 def render_interpolation_audio(request: InterpolationElement) -> bytes:
-    """Synchronous render path used by the legacy ``/interpolate`` endpoint."""
-    result = _run_interpolation(request)
-    return _waveform_to_wav_bytes(result.audio, result.sample_rate)
+    """Synchronous render of a single interpolation through the unified path."""
+    timeline_request = RenderRequest(
+        segments=[InterpolationSegment.from_element(request)]
+    )
+    return render_timeline_audio(timeline_request)
 
 
 def _get_or_encode_source_by_filename(filename: str) -> EncodedSource:
@@ -343,32 +288,22 @@ def _get_or_encode_source_by_filename(filename: str) -> EncodedSource:
         return encode_and_cache(engine, path, source_id)
 
 
-def _generate_clip_tensor(
-    filename: str,
+def build_clip_context_schedule(
+    source: EncodedSource,
     duration_sec: float,
-    *,
-    cancel_event: Optional[threading.Event] = None,
-    nfe: int = 8,
-    decode_method: str = "ola_smooth",
-) -> Tuple[torch.Tensor, int]:
-    """Generate ``duration_sec`` of audio for a clip via the SCAPES model.
+    engine: FlowInference,
+) -> List[torch.Tensor]:
+    """Return one context tensor per atom slot for ``duration_sec`` of clip audio.
 
-    Conditions the generator on the clip's own context embeddings (a sliding
-    window starting at ``contexts[0]``, padded with the last context if the
-    requested duration exceeds the source). Returns ``([C, T], sample_rate)``.
-
-    This replaces the previous "load WAV from disk" path so every segment in a
-    timeline — clip *and* interpolation — goes through the same generative
-    pipeline, eliminating timbre discontinuities at the boundaries.
+    Slices ``source.contexts`` from the front, padding with the final context
+    if the request exceeds the source. Tensors are moved to ``engine.device``
+    so the unified schedule can be handed straight to ``build_base_timeline``.
     """
     if duration_sec <= 0:
         raise ValueError(f"duration_sec must be > 0 (got {duration_sec})")
-
-    engine = get_inference_engine()
-    source = _get_or_encode_source_by_filename(filename)
     contexts = source.contexts
     if not contexts:
-        raise ValueError(f"source {filename!r} has no contexts")
+        raise ValueError(f"source {source.source_id!r} has no contexts")
 
     hop_sec = engine.hop_samples / engine.sr
     timeline_size = max(1, int(round(duration_sec / hop_sec)))
@@ -378,66 +313,263 @@ def _generate_clip_tensor(
         missing = timeline_size - len(window)
         logger.warning(
             "clip %s has %d contexts but %d requested; padding with last context",
-            filename,
+            source.source_id,
             len(contexts),
             timeline_size,
         )
         window.extend([contexts[-1]] * missing)
 
-    if cancel_event is not None and cancel_event.is_set():
-        raise RuntimeError("cancelled by client")
-
-    contexts_dev = [c.to(engine.device) for c in window]
-    timeline = engine.build_base_timeline(
-        atoms_129D=[None] * timeline_size,
-        context_embeddings=contexts_dev,
-        default_TF=False,
-        default_AF=0.0,
-    )
-
-    start_time = time.time()
-    timeline = engine.generate(timeline, NFE=nfe)
-    elapsed = time.time() - start_time
-
-    if cancel_event is not None and cancel_event.is_set():
-        raise RuntimeError("cancelled by client")
-
-    audio = engine.decode_timeline(timeline, method=decode_method)
-    audio = audio.clamp(-1.0, 1.0).cpu()
-    if audio.dim() == 3:
-        audio = audio.squeeze(0)
-    if audio.dim() != 2:
-        raise ValueError(
-            f"Expected generated clip audio to be 2D [C, T], got shape {tuple(audio.shape)}"
-        )
-
-    logger.info(
-        "generated clip %s: timeline_size=%d, duration_sec=%.3f, took %.2fs",
-        filename,
-        timeline_size,
-        timeline_size * hop_sec,
-        elapsed,
-    )
-    return audio, engine.sr
+    return [c.to(engine.device) for c in window]
 
 
-def _make_silence(duration_sec: float, *, sample_rate: int) -> torch.Tensor:
-    """Mono silence ``[1, T]``; channel count is reconciled during stitching."""
+def _make_silence_audio(duration_sec: float, *, sample_rate: int) -> torch.Tensor:
+    """Mono silence ``[1, T]`` for silence-only timelines that bypass SCAPES."""
     n = int(round(duration_sec * sample_rate))
     return torch.zeros(1, max(0, n), dtype=torch.float32)
 
 
-def _match_channels(audio: torch.Tensor, channels: int) -> torch.Tensor:
-    """Coerce ``[C, T]`` to exactly ``channels`` rows (upmix mono, downmix to mono)."""
-    c = audio.shape[0]
-    if c == channels:
-        return audio
-    if c == 1:
-        return audio.expand(channels, -1).contiguous()
-    if channels == 1:
-        return audio.mean(dim=0, keepdim=True)
-    # Uncommon (e.g. 6ch -> 2ch): downmix to mono, then fan out.
-    return audio.mean(dim=0, keepdim=True).expand(channels, -1).contiguous()
+@torch.no_grad()
+def run_generate_with_progress(
+    engine: FlowInference,
+    timeline: List[dict],
+    *,
+    nfe: int = 8,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> List[dict]:
+    """Per-atom replication of :meth:`FlowInference.generate` with hooks.
+
+    Mirrors the submodule loop verbatim (FlowInference.py:461-507) and adds
+    ``progress(done, total)`` after each atom plus a ``cancel_event`` check
+    at the top of each step. The submodule itself is not modified.
+    """
+    if not timeline:
+        raise ValueError("Timeline is empty!")
+
+    engine.model.eval()
+    engine.local_encoder.eval()
+
+    M = engine.segment_length
+    total_steps = len(timeline)
+    dummy_atom = torch.zeros(1, 129, engine.atoms_frames, device=engine.device)
+
+    if progress is not None:
+        progress(0, total_steps)
+
+    for t in range(total_steps):
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("cancelled by client")
+
+        past_atoms = []
+        for i in range(t - M, t):
+            if i < 0:
+                past_atoms.append(dummy_atom)
+            else:
+                step_dict = timeline[i]
+                if step_dict["TF"]:
+                    past_atoms.append(step_dict["atom_given"].to(engine.device))
+                else:
+                    past_atoms.append(step_dict["atom_generated"].to(engine.device))
+
+        past_buffer = torch.cat(past_atoms, dim=0).unsqueeze(0)
+        encoded_past = engine.local_encoder(past_buffer)
+
+        num_nulls = max(0, M - t)
+        if num_nulls > 0:
+            encoded_past[:, :num_nulls, :, :] = engine.model.null_past_embed
+
+        context = timeline[t]["context_embedding"].to(engine.device)
+        if context.dim() == 1:
+            context = context.unsqueeze(0)
+
+        x0 = torch.randn(1, engine.atoms_frames, 129, device=engine.device)
+        pred = engine.model.generate(x0, encoded_past, context, max_nfe=nfe)
+        timeline[t]["atom_generated"] = pred.transpose(1, 2)
+
+        if progress is not None:
+            progress(t + 1, total_steps)
+
+    return timeline
+
+
+@dataclass
+class _SilenceRange:
+    """Sample range to zero-fill after decoding."""
+    start_sample: int
+    end_sample: int
+
+
+def _neighbor_clip_context(
+    segs: List, idx: int, step: int, engine: FlowInference
+) -> Optional[torch.Tensor]:
+    """Find the nearest clip in ``step`` direction and return one of its contexts.
+
+    ``step = -1`` returns the *last* context of the preceding clip (the natural
+    "where the model just left off" vector); ``step = +1`` returns the *first*
+    context of the following clip. Falls back to interpolation endpoints if no
+    raw clip neighbor exists.
+    """
+    i = idx + step
+    while 0 <= i < len(segs):
+        seg = segs[i]
+        if seg.type == "clip":
+            src = _get_or_encode_source_by_filename(seg.filename)
+            ctx = src.contexts[-1] if step < 0 else src.contexts[0]
+            return ctx.to(engine.device)
+        if seg.type == "interpolation":
+            element_audio = seg.audio2 if step < 0 else seg.audio1
+            src = get_or_encode(engine, element_audio)
+            ctx = src.contexts[-1] if step < 0 else src.contexts[0]
+            return ctx.to(engine.device)
+        i += step
+    return None
+
+
+def _interpolation_anchor_override(
+    segs: List, idx: int, hop_sec: float
+) -> Tuple[Tuple[float, float], int, int]:
+    """Compute (a_anchor, b_anchor) and neighbor clip atom-trim for ``segs[idx]``.
+
+    Returns ``((a_anchor, b_anchor), prev_tail_trim_atoms, next_head_trim_atoms)``.
+    Mirrors the per-segment overlap math but in atom units, so the unified
+    schedule can pre-trim clip atom counts before generation.
+    """
+    seg = segs[idx]
+    a_anchor = seg.a_anchor_sec
+    b_anchor = seg.b_anchor_sec
+    prev_seg = segs[idx - 1] if idx > 0 else None
+    next_seg = segs[idx + 1] if idx + 1 < len(segs) else None
+
+    prev_tail_trim = 0
+    next_head_trim = 0
+
+    if seg.distance_sec < 0:
+        overlap_sec = -seg.distance_sec
+        overlap_atoms = max(1, int(round(overlap_sec / hop_sec)))
+        if prev_seg is not None and prev_seg.type == "clip":
+            prev_tail_trim = overlap_atoms
+            a_anchor = max(0.0, prev_seg.duration - overlap_sec)
+        if next_seg is not None and next_seg.type == "clip":
+            next_head_trim = overlap_atoms
+            b_anchor = 0.0
+    else:
+        if prev_seg is not None and prev_seg.type == "clip":
+            a_anchor = prev_seg.duration
+        if next_seg is not None and next_seg.type == "clip":
+            b_anchor = 0.0
+
+    return (a_anchor, b_anchor), prev_tail_trim, next_head_trim
+
+
+def build_unified_timeline_schedule(
+    request: RenderRequest, engine: FlowInference
+) -> Tuple[List[torch.Tensor], List[_SilenceRange]]:
+    """Flatten the timeline into one per-atom context schedule for SCAPES.
+
+    Returns ``(schedule, silence_ranges)``: ``schedule`` is a list of context
+    tensors on ``engine.device`` (one per atom slot, end to end) ready to feed
+    into ``engine.build_base_timeline``; ``silence_ranges`` is a list of
+    ``(start_sample, end_sample)`` ranges in the decoded output that should be
+    zero-filled post-decode.
+
+    Clip atom counts incorporate any overlap-trim demanded by adjacent
+    interpolation segments (negative ``distance_sec``), so the schedule
+    contains exactly the atoms the unified generation should produce — no
+    post-generation sample trimming required.
+    """
+    segs = request.segments
+    hop_sec = engine.hop_samples / engine.sr
+
+    head_trim_atoms = [0] * len(segs)
+    tail_trim_atoms = [0] * len(segs)
+    anchor_overrides: dict = {}
+    for idx, seg in enumerate(segs):
+        if seg.type != "interpolation":
+            continue
+        (a_anchor, b_anchor), prev_trim, next_trim = _interpolation_anchor_override(
+            segs, idx, hop_sec
+        )
+        anchor_overrides[idx] = (a_anchor, b_anchor)
+        if prev_trim > 0:
+            tail_trim_atoms[idx - 1] = max(tail_trim_atoms[idx - 1], prev_trim)
+        if next_trim > 0:
+            head_trim_atoms[idx + 1] = max(head_trim_atoms[idx + 1], next_trim)
+
+    schedule: List[torch.Tensor] = []
+    silence_ranges: List[_SilenceRange] = []
+
+    for idx, seg in enumerate(segs):
+        atom_offset = len(schedule)
+
+        if seg.type == "clip":
+            source = _get_or_encode_source_by_filename(seg.filename)
+            ctx = build_clip_context_schedule(source, seg.duration, engine)
+            start = min(head_trim_atoms[idx], len(ctx))
+            end = max(start, len(ctx) - tail_trim_atoms[idx])
+            if end <= start:
+                logger.warning(
+                    "clip %s at index %d fully consumed by adjacent overlap; dropping",
+                    seg.filename,
+                    idx,
+                )
+                continue
+            schedule.extend(ctx[start:end])
+
+        elif seg.type == "interpolation":
+            src_a = get_or_encode(engine, seg.audio1)
+            src_b = get_or_encode(engine, seg.audio2)
+            a_anchor, b_anchor = anchor_overrides.get(
+                idx, (seg.a_anchor_sec, seg.b_anchor_sec)
+            )
+            ir = request_from_clip_geometry(
+                src_a,
+                src_b,
+                seg.distance_sec,
+                adjacent_duration_sec=seg.duration_sec,
+                a_anchor_sec=a_anchor,
+                b_anchor_sec=b_anchor,
+                stay_time_sec=seg.stay_time_sec,
+                stickyness=seg.stickyness,
+                nfe=seg.nfe,
+                decode_method=seg.decode_method,
+                context_mode_override=seg.context_mode,
+            )
+            ctx, _mode = build_interpolation_context_schedule(engine, ir)
+            schedule.extend(ctx)
+
+        elif seg.type == "silence":
+            atom_count = max(1, int(round(seg.duration / hop_sec)))
+            ctx_tensor = _neighbor_clip_context(segs, idx, -1, engine)
+            if ctx_tensor is None:
+                ctx_tensor = _neighbor_clip_context(segs, idx, +1, engine)
+            if ctx_tensor is None:
+                raise ValueError(
+                    "silence segment has no neighboring clip or interpolation "
+                    "to inherit context from; silence-only timelines bypass SCAPES"
+                )
+            schedule.extend([ctx_tensor] * atom_count)
+            start_sample = atom_offset * engine.hop_samples
+            end_sample = start_sample + int(round(seg.duration * engine.sr))
+            silence_ranges.append(_SilenceRange(start_sample, end_sample))
+
+        else:  # pragma: no cover - guarded by the discriminated union
+            raise ValueError(f"unknown segment type at index {idx}: {seg.type}")
+
+    return schedule, silence_ranges
+
+
+def _resolve_render_params(request: RenderRequest) -> Tuple[int, str]:
+    """Pick a single ``(nfe, decode_method)`` for the unified pass.
+
+    SCAPES runs one ODE solve over the whole timeline, so per-segment ``nfe``
+    can't differ within a single render. Use the first interpolation segment's
+    knobs if present (matches how interpolation-heavy timelines were already
+    being tuned); otherwise fall back to the defaults.
+    """
+    for seg in request.segments:
+        if seg.type == "interpolation":
+            return seg.nfe, seg.decode_method
+    return 8, "ola_smooth"
 
 
 def render_timeline_audio(
@@ -448,135 +580,87 @@ def render_timeline_audio(
 ) -> bytes:
     """Render a clip / silence / interpolation timeline to a 16-bit PCM WAV.
 
-    Every clip and interpolation segment runs through the SCAPES generator so
-    the whole timeline shares a single timbral fingerprint — no seam between
-    raw recording and model-generated bridge. Clip segments are conditioned on
-    that clip's own context embeddings (no slerp); interpolation segments
-    slerp between two clips' contexts as before.
+    The whole timeline collapses into a single per-atom context schedule that
+    SCAPES generates and decodes in one pass. There are no segment boundaries
+    in the audio — the autoregressive past buffer carries timbre across what
+    were previously seams. Silence segments still produce true zero samples:
+    we generate atoms across them (to keep the past buffer warm for the next
+    clip) and zero the corresponding sample ranges after decoding.
 
-    Interpolation anchors are pinned to the surrounding clips' cut edges so
-    every bridge opens at end-of-A and closes at start-of-B. Negative
-    ``distance_sec`` = overlap: neighbor clips are trimmed by ``|distance_sec|``
-    and ``a_anchor`` shifts back so the dynamic window lands on the cut.
+    Negative ``distance_sec`` (overlap) is handled at the schedule layer: the
+    neighbor clip contributes fewer atoms, and the interpolation slot occupies
+    the freed-up atoms — no sample-level trimming after generation.
 
-    ``progress(done, total)`` ticks over every generated segment (clips +
-    interpolations); silence segments don't move the bar. ``cancel_event``,
-    if set between segments, raises ``RuntimeError`` so the job worker can mark
-    the job ``cancelled``.
+    ``progress(done, total)`` ticks per-atom over the unified generation; the
+    bar progresses smoothly across the whole timeline. ``cancel_event``, if
+    set, raises ``RuntimeError`` within one atom (~0.3 s).
     """
     engine = get_inference_engine()
     sample_rate = engine.sr
     segs = request.segments
 
-    head_trim_samples = [0] * len(segs)
-    tail_trim_samples = [0] * len(segs)
-    anchor_overrides: dict[int, Tuple[float, float]] = {}
+    generable = any(s.type in ("clip", "interpolation") for s in segs)
+    if not generable:
+        # Silence-only timeline: skip SCAPES entirely.
+        tensors = [
+            _make_silence_audio(s.duration, sample_rate=sample_rate)
+            for s in segs
+            if s.type == "silence"
+        ]
+        if not tensors:
+            raise ValueError("timeline produced no audio")
+        stitched = torch.cat(tensors, dim=-1)
+        return _waveform_to_wav_bytes(stitched, sample_rate)
 
-    for idx, segment in enumerate(segs):
-        if segment.type != "interpolation":
-            continue
+    schedule, silence_ranges = build_unified_timeline_schedule(request, engine)
+    if not schedule:
+        raise ValueError("timeline produced no atoms to generate")
 
-        a_anchor = segment.a_anchor_sec
-        b_anchor = segment.b_anchor_sec
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("cancelled by client")
 
-        prev_seg = segs[idx - 1] if idx > 0 else None
-        next_seg = segs[idx + 1] if idx + 1 < len(segs) else None
-
-        if segment.distance_sec < 0:
-            overlap_sec = -segment.distance_sec
-            overlap_samples = int(round(overlap_sec * sample_rate))
-            if prev_seg is not None and prev_seg.type == "clip":
-                tail_trim_samples[idx - 1] = max(
-                    tail_trim_samples[idx - 1], overlap_samples
-                )
-                a_anchor = max(0.0, prev_seg.duration - overlap_sec)
-            if next_seg is not None and next_seg.type == "clip":
-                head_trim_samples[idx + 1] = max(
-                    head_trim_samples[idx + 1], overlap_samples
-                )
-                b_anchor = 0.0
-        else:
-            if prev_seg is not None and prev_seg.type == "clip":
-                a_anchor = prev_seg.duration
-            if next_seg is not None and next_seg.type == "clip":
-                b_anchor = 0.0
-
-        anchor_overrides[idx] = (a_anchor, b_anchor)
-
-    generable_total = sum(1 for s in segs if s.type in ("clip", "interpolation"))
-    generable_done = 0
-    if progress is not None:
-        progress(generable_done, generable_total)
-
-    tensors: List[torch.Tensor] = []
-    for index, segment in enumerate(segs):
-        if cancel_event is not None and cancel_event.is_set():
-            raise RuntimeError("cancelled by client")
-
-        if segment.type == "clip":
-            tensor, seg_sr = _generate_clip_tensor(
-                segment.filename,
-                segment.duration,
-                cancel_event=cancel_event,
-            )
-            if seg_sr != sample_rate:
-                raise ValueError(
-                    f"clip sample rate {seg_sr} != timeline {sample_rate}"
-                )
-            total = tensor.shape[-1]
-            start = min(head_trim_samples[index], total)
-            end = max(start, total - tail_trim_samples[index])
-            if end <= start:
-                logger.warning(
-                    "clip %s at index %d fully consumed by adjacent overlap; dropping",
-                    segment.filename,
-                    index,
-                )
-                continue
-            if start > 0 or end < total:
-                tensor = tensor[..., start:end]
-            generable_done += 1
-            if progress is not None:
-                progress(generable_done, generable_total)
-        elif segment.type == "silence":
-            tensor = _make_silence(segment.duration, sample_rate=sample_rate)
-        elif segment.type == "interpolation":
-            element = segment.to_element()
-            if index in anchor_overrides:
-                a_anchor, b_anchor = anchor_overrides[index]
-                element = element.model_copy(
-                    update={"a_anchor_sec": a_anchor, "b_anchor_sec": b_anchor}
-                )
-            tensor, seg_sr = _render_interpolation_tensor(
-                element, cancel_event=cancel_event
-            )
-            if seg_sr != sample_rate:
-                raise ValueError(
-                    f"interpolation sample rate {seg_sr} != timeline {sample_rate}"
-                )
-            generable_done += 1
-            if progress is not None:
-                progress(generable_done, generable_total)
-        else:  # pragma: no cover - guarded by the discriminated union
-            raise ValueError(f"unknown segment type at index {index}")
-
-        if tensor.shape[-1] > 0:
-            tensors.append(tensor)
-
-    if not tensors:
-        raise ValueError("timeline produced no audio")
-
-    channels = max(seg.shape[0] for seg in tensors)
-    stitched = torch.cat(
-        [_match_channels(seg, channels) for seg in tensors], dim=-1
+    timeline = engine.build_base_timeline(
+        atoms_129D=[None] * len(schedule),
+        context_embeddings=schedule,
+        default_TF=False,
+        default_AF=0.0,
     )
+
+    nfe, decode_method = _resolve_render_params(request)
+    start_time = time.time()
+    timeline = run_generate_with_progress(
+        engine,
+        timeline,
+        nfe=nfe,
+        cancel_event=cancel_event,
+        progress=progress,
+    )
+    elapsed = time.time() - start_time
+
+    audio = engine.decode_timeline(timeline, method=decode_method)
+    audio = audio.clamp(-1.0, 1.0).cpu()
+    if audio.dim() == 3:
+        audio = audio.squeeze(0)
+    if audio.dim() != 2:
+        raise ValueError(
+            f"Expected decoded audio to be 2D [C, T], got shape {tuple(audio.shape)}"
+        )
+
+    total_samples = audio.shape[-1]
+    for span in silence_ranges:
+        start = max(0, min(total_samples, span.start_sample))
+        end = max(start, min(total_samples, span.end_sample))
+        if end > start:
+            audio[..., start:end] = 0.0
+
     logger.info(
-        "rendered timeline: %d segments, %d channels, %.3fs",
+        "unified render: %d segments, %d atoms, %.3fs gen, %.3fs audio",
         len(segs),
-        channels,
-        stitched.shape[-1] / sample_rate,
+        len(schedule),
+        elapsed,
+        total_samples / sample_rate,
     )
-    return _waveform_to_wav_bytes(stitched, sample_rate)
+    return _waveform_to_wav_bytes(audio, sample_rate)
 
 
 def render_interpolation_to_file(
@@ -586,22 +670,16 @@ def render_interpolation_to_file(
     cancel_event: Optional[threading.Event] = None,
     progress: Optional[Callable[[int, int], None]] = None,
 ) -> int:
-    """Render an interpolation and atomically persist the WAV to ``output_path``.
-
-    Returns the size in bytes of the written file. Used by the async ``/render``
-    job runner; supports cooperative cancellation through ``cancel_event`` and
-    progress reporting via ``progress(done, total)``.
-    """
-    result = _run_interpolation(
-        request, cancel_event=cancel_event, progress=progress
+    """Render a single interpolation by routing through the unified timeline."""
+    timeline_request = RenderRequest(
+        segments=[InterpolationSegment.from_element(request)]
     )
-    audio_bytes = _waveform_to_wav_bytes(result.audio, result.sample_rate)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    tmp_path.write_bytes(audio_bytes)
-    os.replace(tmp_path, output_path)
-    return len(audio_bytes)
+    return render_timeline_to_file(
+        timeline_request,
+        output_path,
+        cancel_event=cancel_event,
+        progress=progress,
+    )
 
 
 def render_timeline_to_file(

@@ -179,20 +179,19 @@ def _check_cancelled(cancel_event: Optional[threading.Event]) -> None:
         raise InterpolationCancelled("interpolation cancelled by caller")
 
 
-def interpolate(
+def build_interpolation_context_schedule(
     engine: FlowInference,
     request: InterpolationRequest,
-    *,
-    cancel_event: Optional[threading.Event] = None,
-    progress: Optional[Callable[[int, int], None]] = None,
-) -> InterpolationResult:
-    """Run a SCAPES interpolation between two pre-encoded sources.
+) -> tuple[list[Tensor], ConcreteContextMode]:
+    """Build the per-atom context schedule for an interpolation request.
 
-    Coarse-grained cancellation: `cancel_event` is checked once before and
-    once after `engine.generate()`. Fine-grained per-step cancellation is a
-    deliberate follow-up.
+    Returns ``(contexts, resolved_mode)``. ``contexts`` is a flat list of
+    per-atom embedding tensors on ``engine.device`` ready to feed into
+    ``engine.build_base_timeline``; ``resolved_mode`` is the concrete mode
+    chosen (after auto-resolution) for logging.
 
-    `progress(done, total)` fires with `(0, N)` and `(N, N)` around generation.
+    Pulled out of :func:`interpolate` so the unified-timeline renderer can
+    splice many of these together into a single global generation pass.
     """
     if request.duration_sec <= 0:
         raise ValueError(f"duration_sec must be > 0 (got {request.duration_sec})")
@@ -235,6 +234,26 @@ def interpolate(
         c_a_t = c_a_window[t].to(engine.device)
         c_b_t = c_b_window[t].to(engine.device)
         contexts.append(slerp(c_a_t, c_b_t, alpha[t]))
+    return contexts, mode
+
+
+def interpolate(
+    engine: FlowInference,
+    request: InterpolationRequest,
+    *,
+    cancel_event: Optional[threading.Event] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> InterpolationResult:
+    """Run a SCAPES interpolation between two pre-encoded sources.
+
+    Coarse-grained cancellation: `cancel_event` is checked once before and
+    once after `engine.generate()`. Fine-grained per-step cancellation is a
+    deliberate follow-up.
+
+    `progress(done, total)` fires with `(0, N)` and `(N, N)` around generation.
+    """
+    contexts, mode = build_interpolation_context_schedule(engine, request)
+    timeline_size = len(contexts)
 
     timeline = engine.build_base_timeline(
         atoms_129D=[None] * timeline_size,
@@ -264,7 +283,7 @@ def interpolate(
         if step.get("atom_generated") is not None
     ]
 
-    actual_duration = timeline_size * hop_sec
+    actual_duration = timeline_size * _hop_seconds(engine)
 
     logger.info(
         "interpolate: timeline_size=%d, context_mode=%s, nfe=%d, duration_sec=%.3f",
