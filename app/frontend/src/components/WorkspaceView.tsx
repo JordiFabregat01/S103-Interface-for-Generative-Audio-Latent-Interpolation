@@ -551,7 +551,7 @@ const moveClip = (id: number, newStartSec: number) => {
 
   const runInterpolation = async () => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
-    if (sorted.length < 2) return;
+    if (sorted.length < 1) return;
 
     setRenderStatus("queued");
     setRenderProgress(null);
@@ -644,7 +644,7 @@ const moveClip = (id: number, newStartSec: number) => {
   const rulerInterval = Math.max(1, DEFAULT_PX_PER_SEC / pxPerSec);
   const rulerMarkCount = Math.floor(timelineWidth / (rulerInterval * pxPerSec));
 
-  const canInterpolate = timelineClips.length >= 2;
+  const canInterpolate = timelineClips.length >= 1;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
 
