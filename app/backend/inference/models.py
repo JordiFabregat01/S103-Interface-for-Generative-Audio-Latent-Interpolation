@@ -151,6 +151,22 @@ class InterpolationSegment(BaseModel):
             decode_method=self.decode_method,
         )
 
+    @classmethod
+    def from_element(cls, element: InterpolationElement) -> "InterpolationSegment":
+        return cls(
+            audio1=element.audio1,
+            audio2=element.audio2,
+            distance_sec=element.distance_sec,
+            duration_sec=element.duration_sec,
+            a_anchor_sec=element.a_anchor_sec,
+            b_anchor_sec=element.b_anchor_sec,
+            stay_time_sec=element.stay_time_sec,
+            stickyness=element.stickyness,
+            nfe=element.nfe,
+            context_mode=element.context_mode,
+            decode_method=element.decode_method,
+        )
+
 
 Segment = Annotated[
     Union[ClipSegment, SilenceSegment, InterpolationSegment],
