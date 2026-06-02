@@ -103,7 +103,13 @@ class ClipSegment(BaseModel):
 
 
 class SilenceSegment(BaseModel):
-    """A gap rendered as `duration` seconds of zero-filled audio."""
+    """A gap rendered as true silence (zero samples).
+
+    SCAPES still generates atoms across the gap to keep its autoregressive past
+    buffer warm — the output is hard-zeroed after decoding — and the context fed
+    to those atoms is split between the preceding and following sounds so the
+    next clip starts on its own timbre. See ``build_unified_timeline_schedule``.
+    """
 
     type: Literal["silence"] = "silence"
     duration: float = Field(gt=0, description="Seconds of silence to emit.")

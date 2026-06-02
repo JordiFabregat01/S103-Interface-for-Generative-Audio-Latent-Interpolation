@@ -75,7 +75,7 @@ build_unified_timeline_schedule(request, engine)
                │  for each segment, append per-atom contexts:
                │   • clip → build_clip_context_schedule(source, dur, engine)
                │   • interpolation → build_interpolation_context_schedule(...)
-               │   • silence → repeat neighbor clip's context, record range
+               │   • silence → split prev/next clip context, record mute range
                │
                ▼
        (schedule, silence_ranges)
@@ -142,24 +142,41 @@ is already continuous; we don't reassemble it.
 
 ## Silence handling
 
-We chose to **generate atoms across silence and zero-fill the audio post-decode**
-rather than splitting the timeline at silence boundaries.
+A silence segment is always rendered as **true silence**: the corresponding
+sample range is hard-zeroed after decoding. SCAPES still *generates* atoms
+across the gap — we never skip them — because the autoregressive past buffer
+those atoms produce is what the next clip starts from. The only decision is
+which context vector to feed those (muted) atoms, and that's chosen by the
+silence's neighbors:
 
-The trade-off: long silences cost compute (we generate atoms whose samples
-we'll throw away), but the past-atom buffer stays warm across the silence —
-so the clip *after* the silence starts cleanly, without the same cold-start
-smear that would happen if we ran a fresh `generate()` call on it.
+| neighbors                    | context fed across the silence atoms                       |
+|------------------------------|------------------------------------------------------------|
+| preceding **and** following  | first half = preceding sound's last context, second half = following sound's first context |
+| preceding only (trailing gap)| preceding sound's last context, repeated                   |
+| following only (leading gap) | following sound's first context, repeated                  |
 
-Mechanically:
-- The silence segment contributes `round(duration / hop_sec)` atoms to the
-  schedule, each carrying the preceding clip's last context vector (or the
-  following clip's first context if silence is the first segment).
-- We record `(start_sample, end_sample)` for the silence in sample units.
-- After `decode_timeline`, we zero those sample ranges. The OLA crossfade
-  windows naturally take care of the boundary samples on either side.
+The split for a between-clips gap is the load-bearing part. If we warmed the
+whole silence with the preceding sound's context, the AR buffer entering the
+next clip would still be full of the *previous* timbre — and because generation
+has variance, that leaks an audible remnant of the previous sound into the start
+of the next one once its volume comes back up. By handing the second half of the
+gap the following sound's context, the next clip's AR history is already its own
+timbre, so it starts clean. The samples in between are discarded either way.
+
+Mechanics:
+- The silence segment contributes `round(duration / hop_sec)` atoms. For a
+  two-sided gap the first `atom_count // 2` carry the preceding context and the
+  rest carry the following context (`build_unified_timeline_schedule`).
+- Neighbor contexts come from `_neighbor_clip_context`, which walks to the
+  nearest clip (or interpolation endpoint) on each side: `-1` returns that
+  sound's *last* context, `+1` its *first*.
+- We record `(start_sample, end_sample)` and zero those ranges after
+  `decode_timeline`. The OLA crossfade windows handle the boundary samples.
+- Trade-off: long silences cost compute (atoms whose samples are discarded),
+  but no cold-start smear and no cross-boundary timbre bleed.
 
 Silence-only timelines (no clips, no interpolations) short-circuit SCAPES
-entirely and emit zeros directly.
+entirely and emit zeros directly via `_make_silence_audio`.
 
 ## Overlap handling (`distance_sec < 0`)
 
