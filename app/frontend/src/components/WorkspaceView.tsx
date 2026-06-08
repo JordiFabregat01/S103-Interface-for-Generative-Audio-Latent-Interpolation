@@ -420,51 +420,28 @@ const getSoundColor = (name: string, filename = ""): { color: string; glow: stri
   return { color: "#58a6ff", glow: "rgba(88, 166, 255, 0.45)" };
 };
 
-const getImage = (name: string, filename = "") => {
+const getEmoji = (name: string, filename = "") => {
   const lower = `${name} ${filename}`.toLowerCase();
 
-  // WIND
-  if (lower.includes("articwind")) return "/Articwind.png";
-  if (lower.includes("cornfieldwind")) return "Cornfield.png";
-  if (lower.includes("breeze")) return "/Breeze.png";
-  if (lower.includes("wind")) return "/RainWind.png";
-
-  // RAIN / STORM
-  if (lower.includes("icestorm")) return "/IceStorm.png";
-  if (lower.includes("thunder")) return "/Thunderstorm.png";
-  if (lower.includes("leaves")) return "/RainLeaves.png";
-  if (lower.includes("rain")) return "/Rain.png";
-
-
-  // WATER
-  if (lower.includes("waterfall")) return "/Waterfall.png";
-  if (lower.includes("wateronrocks")) return "/Wateronrocks.png";
-  if (lower.includes("underwater")) return "/Underwater.png";
-  if (lower.includes("river")) return "/River.png";
-  if (lower.includes("waves")) return "/Seawave.png";
-  if (lower.includes("breakingwater")) return "/BreakingWater.png";
-
-  // FIRE
-  if (lower.includes("camp_fire")) return "/Campfire.png";
-
-  // BIRDS / ANIMALS
-  if (lower.includes("seagull")) return "/Seagull.png";
-  if (lower.includes("loon")) return "/LoonCall.png";
-  if (lower.includes("bird")) return "/BirdAmbience.png";
-
-  // INSECTS
-  if (lower.includes("bees")) return "/Bee.png";
-  if (lower.includes("cicada")) return "/Cicada.png";
-  if (lower.includes("cricket")) return "/Crickets.png";
-
-  // HUMAN
-  if (lower.includes("snowsteps")) return "/Snowstep.png";
-if (lower.includes("footsteps")) return "/Footsteps_icon.png";
-  if (lower.includes("keyboard")) return "/Keyboard.png";
+  if (lower.includes("wind") || lower.includes("breeze")) return "💨";
+  if (lower.includes("thunder") || lower.includes("storm")) return "⛈️";
+  if (lower.includes("rain")) return "🌧️";
+  if (
+    lower.includes("waterfall") ||
+    lower.includes("wateronrocks") ||
+    lower.includes("underwater") ||
+    lower.includes("river") ||
+    lower.includes("sea") ||
+    lower.includes("waves") ||
+    lower.includes("water")
+  ) return "💧";
+  if (lower.includes("fire")) return "🔥";
+  if (lower.includes("bird") || lower.includes("seagull") || lower.includes("loon")) return "🐦";
+  if (lower.includes("bee") || lower.includes("cicada") || lower.includes("cricket")) return "🦗";
+  if (lower.includes("footstep") || lower.includes("keyboard") || lower.includes("step")) return "🥾";
 
   return "🎵";
 };
-
 const moveClip = (id: number, newStartSec: number) => {
   setTimelineClips((prev) =>
     prev.map((clip) =>
@@ -1101,9 +1078,6 @@ const selectedPath = selectedPathPoints
               <div
                 key={sound.id}
                 className={`sound-card${selectedSound?.id === sound.id ? " selected" : ""}${extra ? ` ${extra}` : ""}`}
-                style={{
-                  backgroundImage: `url(${getImage(sound.name, sound.filename)})`,
-                }}
                 draggable
                 onClick={() => {
                   if (selectedSound?.id === sound.id) {
@@ -1119,9 +1093,10 @@ const selectedPath = selectedPathPoints
                 onDragStart={() => { dragSoundRef.current = sound; }}
                 onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
               >
-                <div className="sound-overlay">
-                  <p>{sound.name}</p>
-                </div>
+              <div className="sound-emoji">
+                {getEmoji(sound.name, sound.filename)}
+              </div>
+              <p>{sound.name}</p>
               </div>
             );
                 if (similarTo && searchResults !== null) {
@@ -1144,11 +1119,8 @@ const selectedPath = selectedPathPoints
           {selectedSound && (
             <div className="sound-preview-panel">
               <div className="sound-preview-header">
-                <span className="preview-name">  <img
-                  src={getImage(selectedSound.name)}
-                  alt={selectedSound.name}
-                  className="sound-icon"
-                />
+                <span className="preview-name">  
+                  <span>{getEmoji(selectedSound.name, selectedSound.filename)}</span>
                 {selectedSound.name}
                 </span>
                 <button className="close-preview-btn" onClick={() => { previewPlayer.pause(); setSelectedSound(null); }}>✕</button>
@@ -1334,7 +1306,9 @@ const selectedPath = selectedPathPoints
               {explorerSelected && (
                 <div className="sound-preview-panel explorer-floating-preview">
                   <div className="sound-preview-header">
-                    <span className="preview-name">{getImage(explorerSelected.name)} {explorerSelected.name}</span>
+                   <span className="preview-name">
+                    {getEmoji(explorerSelected.name, explorerSelected.filename)} {explorerSelected.name}
+                  </span>
                     <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
                   </div>
                   <div className="preview-controls">
@@ -1705,11 +1679,9 @@ const selectedPath = selectedPathPoints
                     />
                   )}
                 <div className="clip-label">
-                  <img
-                    src={getImage(clip.name, clip.filename)}
-                    alt={clip.name}
-                    className="timeline-sound-icon"
-                  />
+              <span className="clip-emoji">
+                {getEmoji(clip.name, clip.filename)}
+              </span>
 
                   <span>{clip.name}</span>
                 </div>
