@@ -419,26 +419,45 @@ const getSoundColor = (name: string, filename = ""): { color: string; glow: stri
     return { color: "#c084fc", glow: "rgba(192, 132, 252, 0.45)" };
   return { color: "#58a6ff", glow: "rgba(88, 166, 255, 0.45)" };
 };
-
 const getEmoji = (name: string, filename = "") => {
   const lower = `${name} ${filename}`.toLowerCase();
 
-  if (lower.includes("wind") || lower.includes("breeze")) return "💨";
-  if (lower.includes("thunder") || lower.includes("storm")) return "⛈️";
-  if (lower.includes("rain")) return "🌧️";
-  if (
-    lower.includes("waterfall") ||
-    lower.includes("wateronrocks") ||
-    lower.includes("underwater") ||
-    lower.includes("river") ||
-    lower.includes("sea") ||
-    lower.includes("waves") ||
-    lower.includes("water")
-  ) return "💧";
-  if (lower.includes("fire")) return "🔥";
-  if (lower.includes("bird") || lower.includes("seagull") || lower.includes("loon")) return "🐦";
-  if (lower.includes("bee") || lower.includes("cicada") || lower.includes("cricket")) return "🦗";
-  if (lower.includes("footstep") || lower.includes("keyboard") || lower.includes("step")) return "🥾";
+// Birds
+if (lower.includes("seagull")) return "🕊️";
+if (lower.includes("loon")) return "🦆";
+if (lower.includes("bird")) return "🐦";
+
+// Water
+if (lower.includes("waterfall")) return "🏞️";
+if (lower.includes("slowriver")) return "🏞️";
+if (lower.includes("seawaves")) return "🌊";
+if (lower.includes("breakingwater")) return "🌊💥";
+if (lower.includes("wateronrocks")) return "🪨💧";
+if (lower.includes("underwater")) return "🤿";
+
+// Weather
+if (lower.includes("rain")) return "🌧️";
+if (lower.includes("ice storm")) return "🧊🌨️";
+if (lower.includes("thunder")) return "⚡";
+if (lower.includes("storm")) return "⛈️";
+
+// Wind
+if (lower.includes("cornfield")) return "🌾";
+if (lower.includes("breeze")) return "🍃";
+if (lower.includes("wind")) return "💨";
+
+// Human
+if (lower.includes("footsteps")) return "👣";
+if (lower.includes("snowsteps")) return "👣❄️";
+if (lower.includes("keyboard")) return "⌨️";
+
+// Insects
+if (lower.includes("bee")) return "🐝";
+if (lower.includes("cicada")) return "🦗";
+if (lower.includes("cricket")) return "🦗";
+
+// Fire
+if (lower.includes("fire")) return "🔥";
 
   return "🎵";
 };
