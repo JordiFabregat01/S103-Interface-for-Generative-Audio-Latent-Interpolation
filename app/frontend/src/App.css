@@ -2092,11 +2092,7 @@ kbd {
   background: rgba(110, 231, 212, 0.32);
 }
 
-.sound-icon {
-  width: 64px;
-  height: 64px;
-  object-fit: contain;
-}
+
 
 .preview-name {
   display: flex;
@@ -2111,11 +2107,7 @@ kbd {
   height: 100%;
 }
 
-.timeline-sound-icon {
-  width: 80px;
-  height: 80px;
-  object-fit: contain;
-}
+
 
 .sound-card {
   position: relative;
@@ -2125,23 +2117,17 @@ kbd {
   overflow: hidden;
 }
 
-.sound-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 12px;
-  background: linear-gradient(to top, rgba(0,0,0,0.75), rgba(0,0,0,0));
+
+.sound-emoji {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 6px;
 }
 
-.sound-overlay p {
-  margin: 0;
-  color: white;
-  font-weight: 600;
-  text-align: center;
+.clip-emoji {
+  font-size: 22px;
+  line-height: 1;
 }
-
 
 .timeline-clip {
   background-size: contain;
