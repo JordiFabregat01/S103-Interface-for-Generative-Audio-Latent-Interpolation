@@ -147,6 +147,7 @@ const startTimelineResize = (e: React.MouseEvent) => {
 };
   //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [showHowToUse, setShowHowToUse] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
@@ -229,6 +230,23 @@ const startTimelineResize = (e: React.MouseEvent) => {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      "light-theme",
+      theme === "light"
+    );
+
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   // Resize handle drag via mouse events (more reliable than HTML drag for edge resizing)
   useEffect(() => {
@@ -337,6 +355,13 @@ const startTimelineResize = (e: React.MouseEvent) => {
   const interpLoading = renderStatus !== null;
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
+  const [renderLibrary, setRenderLibrary] = useState<
+    {
+      id: number;
+      name: string;
+      url: string;
+    }[]
+  >([]);
   const interpUrlRef = useRef<string | null>(null);
   const [interpolatedGaps, setInterpolatedGaps] = useState<Set<string>>(new Set());
   const [loadingVerbIdx, setLoadingVerbIdx] = useState(0);
@@ -369,6 +394,10 @@ const startTimelineResize = (e: React.MouseEvent) => {
     if (parsed.quality) {
       setQuality(parsed.quality);
     }
+
+    if (parsed.theme) {
+      setTheme(parsed.theme);
+    }
    if (parsed.interpolatedGaps) {
     setInterpolatedGaps(new Set(parsed.interpolatedGaps));
   }
@@ -385,6 +414,7 @@ const startTimelineResize = (e: React.MouseEvent) => {
     timelineClips,
     quality,
     interpolatedGaps: [...interpolatedGaps],
+    theme,
 
   };
 
@@ -517,7 +547,7 @@ const moveClip = (id: number, newStartSec: number) => {
 
   const runInterpolation = async () => {
     const sorted = [...timelineClips].sort((a, b) => a.start - b.start);
-    if (sorted.length < 2) return;
+    if (sorted.length < 1) return;
 
     setRenderStatus("queued");
     setRenderProgress(null);
@@ -538,8 +568,22 @@ const moveClip = (id: number, newStartSec: number) => {
           }
         },
       });
+
       interpUrlRef.current = url;
       setInterpUrl(url);
+
+      const firstClip = sorted[0];
+      const lastClip = sorted[sorted.length - 1];
+
+      setRenderLibrary(prev => [
+        {
+          id: Date.now(),
+          name: `${firstClip.name} → ${lastClip.name}`,
+          url,
+        },
+        ...prev,
+      ]);
+
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Render failed");
     } finally {
@@ -596,7 +640,7 @@ const moveClip = (id: number, newStartSec: number) => {
   const rulerInterval = Math.max(1, DEFAULT_PX_PER_SEC / pxPerSec);
   const rulerMarkCount = Math.floor(timelineWidth / (rulerInterval * pxPerSec));
 
-  const canInterpolate = timelineClips.length >= 2;
+  const canInterpolate = timelineClips.length >= 1;
 
   const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
 
@@ -847,6 +891,19 @@ const selectedPath = selectedPathPoints
           <option value={4}>Fast</option>
           <option value={8}>Balanced</option>
           <option value={16}>High</option>
+        </select>
+      </div>
+      <div className="theme-selector">
+        <label>Theme</label>
+
+        <select
+          value={theme}
+          onChange={(e) =>
+            setTheme(e.target.value as "dark" | "light")
+          }
+        >
+          <option value="dark">🌙 Dark</option>
+          <option value="light">☀️ Light</option>
         </select>
       </div>
     </div>
@@ -1503,13 +1560,40 @@ const selectedPath = selectedPathPoints
                   onChange={(e) => interpPlayer.seek(Number(e.target.value))}
                 />
                 <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
-                <a
-                  href={interpUrl}
-                  download={`interpolation-${Date.now()}.wav`}
-                  className="download-btn"
-                >
-                  Download WAV
-                </a>
+              </div>
+            )}
+            {renderLibrary.length > 0 && (
+              <div className="render-library">
+                <h3>🎵 Render Library</h3>
+
+                {renderLibrary.map((render) => (
+                  <div key={render.id} className="render-library-item">
+
+                    <span>{render.name}</span>
+
+                    <div className="render-library-actions">
+
+                      <button
+                        className="preview-play-btn"
+                        onClick={() => {
+                          previewPlayer.pause();
+                          interpPlayer.play(render.url);
+                        }}
+                      >
+                        ▶
+                      </button>
+
+                      <a
+                        href={render.url}
+                        download={`${render.name}.wav`}
+                        className="download-btn"
+                      >
+                        Download
+                      </a>
+
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
