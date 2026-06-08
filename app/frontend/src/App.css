@@ -1272,6 +1272,9 @@ button {
   align-items: center;
   gap: 10px;
 }
+.theme-selector {
+  margin-top: 15px;
+}
 
 .quality-selector label {
   color: var(--text-2);
@@ -2166,3 +2169,63 @@ kbd {
 
   overflow: hidden;
 }
+/* ─── Light Theme Improvements ─────────────────────────────── */
+
+.light-theme .workspace-page h1 {
+  color: #0f172a;
+}
+
+.light-theme .interpolate-btn {
+  background: #1e90ff;
+  color: white;
+  border-color: #1e90ff;
+}
+
+.light-theme .library-panel,
+.light-theme .drop-panel,
+.light-theme .timeline-panel {
+  box-shadow: 0 2px 8px rgba(15,23,42,0.08);
+}
+
+.light-theme .timeline-empty {
+  color: #64748b;
+}
+
+.light-theme .app-header {
+  border-bottom: 1px solid #dbe2ea;
+}
+
+.render-library {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface-0);
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+}
+
+.render-library h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+
+.render-library-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-0);
+}
+
+.render-library-item:first-of-type {
+  border-top: none;
+}
+
+.render-library-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+ 
