@@ -460,7 +460,7 @@ if (lower.includes("bird")) return "🐦";
 // Water
 if (lower.includes("waterfall")) return "🏞️";
 if (lower.includes("slowriver")) return "🏞️";
-if (lower.includes("seawaves")) return "🌊";
+if (lower.includes("sea_waves")) return "🌊";
 if (lower.includes("breakingwater")) return "🌊💥";
 if (lower.includes("wateronrocks")) return "🪨💧";
 if (lower.includes("underwater")) return "🤿";
