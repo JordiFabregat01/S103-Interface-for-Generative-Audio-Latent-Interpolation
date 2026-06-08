@@ -2161,8 +2161,8 @@ kbd {
   display: flex;
   flex-direction: column;
 
-  min-height: 120px;
-  max-height: 360px;
+  min-height: 200px;
+  max-height: 500px;
 
   overflow: hidden;
 }
