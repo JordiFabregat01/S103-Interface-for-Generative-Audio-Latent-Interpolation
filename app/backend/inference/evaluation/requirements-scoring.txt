@@ -1,0 +1,22 @@
+# Scoring-phase dependencies for evaluate_model.py (--phase score).
+#
+# Install these in a DEDICATED, ISOLATED venv on Python 3.9-3.11 (3.11
+# recommended). They are intentionally NOT part of the project env: kadtk pins
+# torch>=2.1,<2.6 and python<3.12, which conflicts with the project's torch 2.11
+# / Python 3.12. The scoring phase imports zero project code, so it runs fine
+# in its own interpreter against the WAV folders produced by --phase generate.
+#
+#   uv venv --python 3.11 .venv-eval
+#   uv pip install -r app/backend/inference/evaluation/requirements-scoring.txt
+#
+# KAD-TexStat additionally needs the ddsp_textures submodule (+ its
+# torch_filterbanks); run `git submodule update --init --recursive` first.
+
+kadtk
+openpyxl
+
+# torchaudio is required by the TexStat embedding (resampling + statistics).
+# It MUST match the torch version kadtk resolves (e.g. torch 2.5.x -> torchaudio
+# 2.5.x). If pip picks an incompatible build, install it explicitly afterwards,
+# e.g.  `uv pip install "torchaudio==2.5.*"`.
+torchaudio

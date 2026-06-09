@@ -38,6 +38,7 @@ CLAPWrapper = _clap_module.CLAPWrapper
 EncodecProcessor = _encodec_module.EncodecProcessor
 FlowInference = _flow_inference_module.FlowInference
 run_interpolation_pipeline = _flow_inference_module.run_interpolation_pipeline
+run_resynthesis_pipeline = _flow_inference_module.run_resynthesis_pipeline
 load_local_encoder = _local_encoder_module.load_local_encoder
 load_flow_model = _flow_module.load_flow_model
 

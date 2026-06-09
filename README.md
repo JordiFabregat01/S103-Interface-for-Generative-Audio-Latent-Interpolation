@@ -240,6 +240,148 @@ If everything is correctly installed:
 
 ---
 
+# 🧪 Testing — Model Evaluation
+
+The trained model can be evaluated against the source dataset with three
+audio-distribution distances (lower is better):
+
+* **FAD-VGGish** — Fréchet distance over VGGish embeddings
+* **KAD-CLAP** — Kernel (MMD) distance over CLAP-2023 embeddings
+* **KAD-TexStat** — Kernel distance over TexStat embeddings
+
+For every source sound the script resynthesizes ~60s of the same texture, then
+compares the embedding distributions of the originals vs the generations and
+writes the results to an Excel file.
+
+The evaluation runs in **two phases** that talk only through WAV files on disk,
+because they need **different, incompatible environments**:
+
+* `generate` → runs in the **project venv** (torch 2.11 / Python 3.12 / msclap /
+  SCAPES) and writes `reference/` + `generated/` WAVs
+* `score` → runs in a **separate Python 3.11 venv** for `kadtk` (which pins
+  `torch<2.6` and `python<3.12`, so it must NOT share the project env) and reads
+  those WAVs to produce the Excel
+
+> ⚠️ Run all commands below from `app/backend`.
+
+### 1. One-time setup for the scoring venv
+
+`KAD-TexStat` uses the `ddsp_textures` submodule (and its `torch_filterbanks`),
+so initialise submodules, then build the isolated env. Run from the **repo root**:
+
+**Windows (PowerShell):**
+
+```powershell
+# submodules: ddsp_textures + scapes
+git submodule update --init modules/scapes modules/ddsp_textures
+
+# ddsp_textures references torch_filterbanks as a bare gitlink (no upstream
+# .gitmodules entry), so clone it explicitly into place:
+git clone https://github.com/cordutie/torch_filterbanks.git `
+  modules/ddsp_textures/experiments/texstat/torch_filterbanks
+
+# dedicated Python 3.11 env for scoring (kept separate from the project venv)
+uv venv --python 3.11 .venv-eval
+uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+```
+
+**macOS / Linux (bash):**
+
+```bash
+git submodule update --init modules/scapes modules/ddsp_textures
+git clone https://github.com/cordutie/torch_filterbanks.git \
+  modules/ddsp_textures/experiments/texstat/torch_filterbanks
+uv venv --python 3.11 .venv-eval
+uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+```
+
+> ℹ️ `torchaudio` must match the `torch` version `kadtk` resolves (e.g. torch
+> 2.5.x → torchaudio 2.5.x). If the install picks an incompatible build, run
+> `uv pip install --python .venv-eval "torchaudio==2.5.*"` afterwards.
+
+### 2. Smoke Test (single sound)
+
+Quickly checks the full pipeline end-to-end on one sound. Both phases need
+**`CWD = app/backend`**.
+
+**Windows (PowerShell):**
+
+```powershell
+# PHASE 1 — generate (PROJECT venv)
+cd app/backend
+uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1
+cd ../..
+
+# PHASE 2 — score (SCORING venv)
+.venv-eval\Scripts\Activate.ps1
+cd app/backend
+python -m inference.evaluation.evaluate_model --phase score
+cd ../.. ; deactivate
+```
+
+**macOS / Linux (bash):**
+
+```bash
+# PHASE 1 — generate (PROJECT venv)
+(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1)
+
+# PHASE 2 — score (SCORING venv)
+source .venv-eval/bin/activate
+(cd app/backend && python -m inference.evaluation.evaluate_model --phase score)
+deactivate
+```
+
+Confirm that `app/backend/inference/evaluation/out/reference/` and `.../generated/`
+each contain one ~60s WAV, and that `.../out/eval_results.xlsx` opens with finite
+**FAD-VGGish / KAD-CLAP / KAD-TexStat** values.
+
+### 3. Complete Test (full dataset)
+
+Once the smoke test passes, run the same two phases without `--limit`:
+
+**Windows (PowerShell):**
+
+```powershell
+# PHASE 1 — generate all sounds (PROJECT venv)
+cd app/backend
+uv run python -m inference.evaluation.evaluate_model --phase generate
+cd ../..
+
+# PHASE 2 — score (SCORING venv)
+.venv-eval\Scripts\Activate.ps1
+cd app/backend
+python -m inference.evaluation.evaluate_model --phase score
+cd ../.. ; deactivate
+```
+
+**macOS / Linux (bash):**
+
+```bash
+(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate)
+source .venv-eval/bin/activate
+(cd app/backend && python -m inference.evaluation.evaluate_model --phase score)
+deactivate
+```
+
+The Excel (`app/backend/inference/evaluation/out/eval_results.xlsx`) has one row
+per sound plus a pooled **OVERALL** row — the pooled row is the headline number.
+Scores reflect the full dataset (no cherry-picking); selecting the best
+generations would lower the distances.
+
+> 💡 Useful flags: `--data-dir <dir>` (evaluate a different WAV folder),
+> `--duration`, `--nfe`, `--seed`, `--only <stem>`, `--limit N`, `--device cpu|cuda`.
+> See `--help` for the full list.
+
+### What to expect on the first run
+
+* The scoring venv **downloads model weights** (VGGish, CLAP) on first use.
+* The `generate` phase loads the ~887 MB SCAPES flow model and resynthesizes
+  ~60s per sound, so the full dataset takes a while (GPU strongly recommended).
+* The two phases are decoupled through the WAV files on disk, so you can re-run
+  `--phase score` as often as you like without regenerating audio.
+
+---
+
 # 🧩 Working with SCAPES
 
 The SCAPES module is included as a submodule:
