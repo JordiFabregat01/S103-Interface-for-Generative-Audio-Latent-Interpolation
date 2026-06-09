@@ -13,6 +13,7 @@
 venv/
 env/
 .venv/
+.venv-eval/
 conda-env/
 node_modules/
 .env*
@@ -45,6 +46,7 @@ results/
 app/frontend/dist/
 app/frontend/build/
 app/backend/inference/cache/
+app/backend/inference/evaluation/out/
 
 # =========================
 # Jupyter Notebook noise
