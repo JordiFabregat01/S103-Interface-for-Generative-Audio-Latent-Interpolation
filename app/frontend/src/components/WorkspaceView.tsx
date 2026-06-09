@@ -362,6 +362,7 @@ const startTimelineResize = (e: React.MouseEvent) => {
       url: string;
     }[]
   >([]);
+  const [showRenderLibrary, setShowRenderLibrary] = useState(true);
   const interpUrlRef = useRef<string | null>(null);
   const [interpolatedGaps, setInterpolatedGaps] = useState<Set<string>>(new Set());
   const [loadingVerbIdx, setLoadingVerbIdx] = useState(0);
@@ -557,11 +558,9 @@ const moveClip = (id: number, newStartSec: number) => {
     setRenderProgress(null);
     setRenderJobId(null);
     setInterpError(null);
-    if (interpUrlRef.current) {
-      URL.revokeObjectURL(interpUrlRef.current);
-      interpUrlRef.current = null;
-    }
+   
     setInterpUrl(null);
+   
     try {
       const url = await render(buildTimelineSegments(sorted), {
         onJobId: (id) => setRenderJobId(id),
@@ -1570,38 +1569,46 @@ const selectedPath = selectedPathPoints
               </div>
             )}
             {renderLibrary.length > 0 && (
-              <div className="render-library">
-                <h3>🎵 Render Library</h3>
+              <>
+                <button
+                  className="render-library-toggle"
+                  onClick={() => setShowRenderLibrary(!showRenderLibrary)}
+                >
+                  {showRenderLibrary ? "🎵 Library ▼" : "🎵 Library ▶"}
+                </button>
 
-                {renderLibrary.map((render) => (
-                  <div key={render.id} className="render-library-item">
+                {showRenderLibrary && (
+                  <div className="render-library">
+                    <h3>🎵 Render Library</h3>
 
-                    <span>{render.name}</span>
+                    {renderLibrary.map((render) => (
+                      <div key={render.id} className="render-library-item">
+                        <span>{render.name}</span>
 
-                    <div className="render-library-actions">
+                        <div className="render-library-actions">
+                          <button
+                            className="preview-play-btn"
+                            onClick={() => {
+                              previewPlayer.pause();
+                              interpPlayer.play(render.url);
+                            }}
+                          >
+                            ▶
+                          </button>
 
-                      <button
-                        className="preview-play-btn"
-                        onClick={() => {
-                          previewPlayer.pause();
-                          interpPlayer.play(render.url);
-                        }}
-                      >
-                        ▶
-                      </button>
-
-                      <a
-                        href={render.url}
-                        download={`${render.name}.wav`}
-                        className="download-btn"
-                      >
-                        Download
-                      </a>
-
-                    </div>
+                          <a
+                            href={render.url}
+                            download={`${render.name}.wav`}
+                            className="download-btn"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
           <div className="timeline-header-right">

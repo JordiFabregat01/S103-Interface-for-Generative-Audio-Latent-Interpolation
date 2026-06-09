@@ -2210,11 +2210,22 @@ kbd {
 }
 
 .render-library {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--surface-0);
-  border: 1px solid var(--border-1);
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  max-height: 140px;
+  overflow-y: auto;
+
+  padding-right: 4px;
+}
+.render-library::-webkit-scrollbar {
+  width: 6px;
+}
+
+.render-library::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 999px;
 }
 
 .render-library h3 {
@@ -2243,3 +2254,23 @@ kbd {
   align-items: center;
 }
  
+.render-library-toggle {
+  height: 34px;
+  padding: 0 12px;
+
+  background: var(--surface-1);
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+
+  color: var(--text-1);
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 600;
+
+  transition: all 0.15s ease;
+}
+
+.render-library-toggle:hover {
+  border-color: var(--accent);
+}
