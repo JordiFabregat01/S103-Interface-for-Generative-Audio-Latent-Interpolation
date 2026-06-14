@@ -7,34 +7,44 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class AudioElement(str, Enum):
-    ARTIC_WIND = "ArticWind"
-    BEES = "Bees"
-    BIRD_AMBIENCE = "BirdAmbience"
+    ARTIC_WIND = "artic_wind"
+    BEES = "bees"
+    BEES_ANGRY = "bees_angry"
+    BIRDS_1 = "Birds_1"
+    BIRDS_2 = "Birds_2"
     BREAKING_WATER = "BreakingWater"
-    BREEZE = "Breeze"
-    CAMPFIRE = "camp_fire"
-    CICADAS_CLEAN = "CicadasClean"
+    BREEZE = "breeze"
+    CAMPFIRE_HARD_CRACKLE = "camp_fire_hard_crackle"
+    CAMPFIRE_SOFT_CRACKLE = "camp_fire_soft_crackle"
+    CICADAS = "Cicadas"
     CORNFIELD_WIND = "CornfieldWind"
-    CRICKETS = "crickets"
     FOOTSTEPS = "footsteps"
     ICE_STORM = "IceStorm"
-    INTENSE_BREEZE = "IntenseBreeze"
-    KEYBOARD = "keyboard"
-    LOON_CALL = "LoonCall"
-    RAIN = "rain"
+    INTENSE_BREEZE_2 = "IntenseBreeze_2"
+    KEYBOARD = "Keyboard"
+    RAIN = "Rain"
     RAIN_ON_LEAVES = "RainOnLeaves"
-    SEA_WAVES = "sea_waves"
-    SEAGULLS = "Seagulls"
+    SEAGULLS_1 = "Seagulls_1"
+    SEAGULLS_2 = "Seagulls_2"
+    SEA_WAVES = "SeaWaves"
     SLOW_RIVER = "SlowRiver"
-    SNOW_STEPS = "SnowSteps"
-    THUNDER_STORM = "ThunderStorm"
+    SNOW_STEPS = "snow_steps"
+    THUNDER_STORM_BIG = "thunder_storm_big_thunder"
+    THUNDER_STORM_FAR = "thunder_storm_far_thunder"
     UNDERWATER_FLOW = "UnderwaterFlow"
     WATERFALL = "waterfall"
     WATER_ON_ROCKS = "WaterOnRocks"
-    WIND_AND_RAIN = "Wind&Rain"
+    WIND_AND_RAIN = "wind&rain"
+    CRICKETS = "crickets"
 
 
 ContextModeLiteral = Literal["auto", "static_first", "static_at_anchor", "dynamic"]
+
+# Which variant of a sound to use: "short" (clean cherrypick clip) or "long"
+# (original longer recording). Disambiguates the stem collisions between the
+# assets/short/ and assets/long/ folders. Defaults to "long" so older callers
+# keep their original behavior.
+KindLiteral = Literal["short", "long"]
 
 
 class InterpolationElement(BaseModel):
@@ -49,8 +59,10 @@ class InterpolationElement(BaseModel):
     gets the right mode for free; pass an explicit value to override geometry.
     """
 
-    audio1: AudioElement
-    audio2: AudioElement
+    audio1: str
+    audio2: str
+    audio1_kind: KindLiteral = "long"
+    audio2_kind: KindLiteral = "long"
 
     distance_sec: float = 0.0
     duration_sec: Optional[float] = Field(
@@ -99,6 +111,7 @@ class ClipSegment(BaseModel):
 
     type: Literal["clip"] = "clip"
     filename: str
+    kind: KindLiteral = "long"
     duration: float = Field(gt=0, description="Seconds of audio to emit.")
 
 
@@ -124,8 +137,10 @@ class InterpolationSegment(BaseModel):
 
     type: Literal["interpolation"] = "interpolation"
 
-    audio1: AudioElement
-    audio2: AudioElement
+    audio1: str
+    audio2: str
+    audio1_kind: KindLiteral = "long"
+    audio2_kind: KindLiteral = "long"
 
     distance_sec: float = 0.0
     duration_sec: Optional[float] = Field(
@@ -146,6 +161,8 @@ class InterpolationSegment(BaseModel):
         return InterpolationElement(
             audio1=self.audio1,
             audio2=self.audio2,
+            audio1_kind=self.audio1_kind,
+            audio2_kind=self.audio2_kind,
             distance_sec=self.distance_sec,
             duration_sec=self.duration_sec,
             a_anchor_sec=self.a_anchor_sec,
@@ -162,6 +179,8 @@ class InterpolationSegment(BaseModel):
         return cls(
             audio1=element.audio1,
             audio2=element.audio2,
+            audio1_kind=element.audio1_kind,
+            audio2_kind=element.audio2_kind,
             distance_sec=element.distance_sec,
             duration_sec=element.duration_sec,
             a_anchor_sec=element.a_anchor_sec,

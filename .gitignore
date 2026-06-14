@@ -48,6 +48,13 @@ app/frontend/build/
 app/backend/inference/cache/
 app/backend/inference/evaluation/out/
 
+# --- Definitive sound library (short + long): committed so library/map/interpolation are reproducible ---
+# library wavs in the per-kind subfolders
+!app/backend/inference/assets/short/*.wav
+!app/backend/inference/assets/long/*.wav
+# the SCAPES source caches
+!app/backend/inference/assets/cache/*.source.pt
+
 # =========================
 # Jupyter Notebook noise
 # =========================

@@ -37,8 +37,10 @@ environment — hence the dedicated scoring venv.
 
 ## Requirements
 
-* The project backend installed and working (see the main `README.md`).
-* `uv` installed (`pip install uv`).
+* The project backend installed and working — a Python 3.12 `.venv` with
+  `requirements.txt` (see the main `README.md`).
+* Python 3.11 available for the separate scoring venv (`py -3.11` on Windows,
+  `python3.11` on macOS/Linux).
 * **GPU strongly recommended** for the generate phase.
 * Git access to the submodules (`scapes`, `ddsp_textures`, `torch_filterbanks`).
 
@@ -63,32 +65,35 @@ git clone https://github.com/cordutie/torch_filterbanks.git \
 **macOS / Linux (bash):**
 
 ```bash
-uv venv --python 3.11 .venv-eval
-uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+python3.11 -m venv .venv-eval
+.venv-eval/bin/python -m pip install -r app/backend/inference/evaluation/requirements-scoring.txt
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-uv venv --python 3.11 .venv-eval
-uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+py -3.11 -m venv .venv-eval
+.venv-eval\Scripts\python -m pip install -r app/backend/inference/evaluation/requirements-scoring.txt
 ```
 
 > ℹ️ `torchaudio` must match the `torch` version `kadtk` resolves (e.g. torch
 > 2.5.x → torchaudio 2.5.x). If the install picks an incompatible build, run
-> `uv pip install --python .venv-eval "torchaudio==2.5.*"` afterwards.
+> `.venv-eval/bin/python -m pip install "torchaudio==2.5.*"` afterwards
+> (`.venv-eval\Scripts\python` on Windows).
 
 ---
 
 ## 2. Smoke test (single sound)
 
-Quickly checks the whole pipeline end-to-end on one sound (~minutes).
+Quickly checks the whole pipeline end-to-end on one sound (~minutes). The
+generate phase uses the **project** `.venv` python; the score phase uses the
+**scoring** `.venv-eval`.
 
 **macOS / Linux (bash):**
 
 ```bash
 # PHASE 1 — generate (PROJECT venv)
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1)
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate --limit 1)
 
 # PHASE 2 — score (SCORING venv)
 source .venv-eval/bin/activate
@@ -101,7 +106,7 @@ deactivate
 ```powershell
 # PHASE 1 — generate (PROJECT venv)
 cd app/backend
-uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1
+..\..\.venv\Scripts\python -m inference.evaluation.evaluate_model --phase generate --limit 1
 cd ../..
 
 # PHASE 2 — score (SCORING venv)
@@ -124,7 +129,7 @@ Once the smoke test passes, run the same two phases **without `--limit`**.
 **macOS / Linux (bash):**
 
 ```bash
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate)
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate)
 source .venv-eval/bin/activate
 (cd app/backend && python -m inference.evaluation.evaluate_model --phase score)
 deactivate
@@ -134,7 +139,7 @@ deactivate
 
 ```powershell
 cd app/backend
-uv run python -m inference.evaluation.evaluate_model --phase generate
+..\..\.venv\Scripts\python -m inference.evaluation.evaluate_model --phase generate
 cd ../..
 
 .venv-eval\Scripts\Activate.ps1

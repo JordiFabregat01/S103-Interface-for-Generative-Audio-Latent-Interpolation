@@ -29,7 +29,9 @@ embedding distributions of originals vs generations with three distances
 | **generate** | project venv (`torch>=2.11`, SCAPES, msclap)  | 3.12   | GPU-heavy resynthesis → writes WAVs |
 | **score**    | isolated venv (`kadtk`, pins `torch<2.6`)     | 3.11   | reads WAVs → writes the Excel    |
 
-You will therefore build **two** virtual environments. `uv` manages both.
+You will therefore build **two** virtual environments with the standard-library
+`venv` module — one Python 3.12 (`.venv`, the project env) and one Python 3.11
+(`.venv-eval`, the scoring env).
 
 Final output: `app/backend/inference/evaluation/out/eval_results.xlsx`.
 
@@ -52,20 +54,23 @@ sudo apt-get install -y \
 * `libsndfile1` — backing library for `soundfile` (reading/writing WAVs).
 * `ffmpeg` — decoding fallback for `librosa.load`.
 
-### Install `uv`
+### Install Python 3.11 and 3.12
 
-`uv` provisions the right Python versions and both venvs without you installing
-Python system-wide:
+You need **both** interpreters (3.12 for the project venv, 3.11 for scoring),
+each with its `venv` module. On Ubuntu the `deadsnakes` PPA provides them:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# load it into the current shell (or open a new terminal)
-source "$HOME/.local/bin/env"
-uv --version
+sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3.11 python3.11-venv
 ```
 
-`uv` will fetch Python **3.12** (generate venv) and **3.11** (scoring venv)
-on demand — you do **not** need a system Python.
+Confirm both are available:
+
+```bash
+python3.12 --version
+python3.11 --version
+```
 
 ---
 
@@ -82,7 +87,8 @@ CUDA toolkit install.
    nvidia-smi
    ```
 
-   If this prints your GPU name and a driver/CUDA version, skip to step 3.
+   If this prints your GPU name and a driver/CUDA version, skip to step 3. Note
+   the **CUDA version** it reports — you'll match the torch wheel to it in step 5.
 
 2. If `nvidia-smi` is missing, install the driver and **reboot**:
 
@@ -134,9 +140,10 @@ git clone https://github.com/cordutie/torch_filterbanks.git \
 
 ## 4. ⚠️ Obtain the model weights and the dataset (NOT in git)
 
-These are **gitignored** and will be **absent in a fresh clone** — the
-evaluation cannot run without them. You must copy them from a teammate, a shared
-drive, or wherever your group stores them.
+The **model checkpoints** are **gitignored** and will be **absent in a fresh
+clone** — the evaluation cannot run without them. The **library WAVs** (under
+`app/backend/inference/assets/short/` and `.../long/`) *are* committed, so a
+fresh clone already has them; you only need to copy the checkpoints.
 
 ### 4a. Model checkpoints (required for `generate`)
 
@@ -162,39 +169,36 @@ mkdir -p app/backend/inference/models/Full_150e/checkpoints
 > `SCAPES_LOCAL_ENCODER_CONFIG` environment variables if your weights live
 > elsewhere (see `app/backend/inference/constants.py`).
 
-### 4b. Source dataset WAVs (required for `generate`)
+### 4b. Source dataset WAVs
 
-By default the dataset is **every `*.wav`** in
-`app/backend/inference/assets/` (the original project has ~25 textures there).
-These WAVs are gitignored, so copy them in:
-
-```bash
-# place the source .wav files here:
-ls app/backend/inference/assets/*.wav   # should list your textures
-```
-
-Alternatively, point the script at any other folder of source WAVs at run time
-with `--data-dir <dir>` (see step 7).
+The library textures live in `app/backend/inference/assets/short/` and
+`app/backend/inference/assets/long/` and are committed to the repo. To evaluate a
+**different** folder of source WAVs, point the script at it at run time with
+`--data-dir <dir>` (see step 9).
 
 ---
 
 ## 5. Build the **project** venv (generate phase)
 
-This env uses the `pyproject.toml` in `app/backend` (Python 3.12, `torch>=2.11`,
-SCAPES, `msclap` from GitHub). Let `uv` create and populate `app/backend/.venv`:
+Create the project env at the **repo root** with Python 3.12 and install the
+pinned dependencies from `requirements.txt` (which already bundles SCAPES,
+`msclap`-from-git, and the backend deps):
 
 ```bash
-cd app/backend
-uv sync
-cd ../..
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-`uv sync` reads `app/backend/pyproject.toml` (including the `msclap` git source)
-and resolves a CUDA-enabled `torch` build automatically on Linux with an NVIDIA
-GPU. You don't activate this venv manually — you run it via `uv run` (step 7).
+> **Match the torch CUDA build to your driver.** `requirements.txt` pins the
+> **cu128** torch wheels (for a CUDA 12.8-capable driver). If your `nvidia-smi`
+> from step 2 reports an older CUDA, edit the two `torch`/`torchaudio` lines and
+> the `--extra-index-url` at the top of `requirements.txt` to the matching build
+> (e.g. `+cu121` with `https://download.pytorch.org/whl/cu121`), per the comment
+> in the file. For CPU-only boxes, use the plain `==2.11.0` versions.
 
-> If `uv sync` errors on your setup, the fallback is the requirements file:
-> `uv pip install -r app/backend/requirements.txt`.
+You run this env via its python directly (`.venv/bin/python …`) or by
+`source .venv/bin/activate`.
 
 ---
 
@@ -204,18 +208,16 @@ Confirm PyTorch sees the GPU **inside the project venv** (run from `app/backend`
 
 ```bash
 cd app/backend
-uv run python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('CUDA version:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU only')"
+../../.venv/bin/python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('CUDA version:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU only')"
 cd ../..
 ```
 
 Expected on a GPU box: `CUDA available: True` and your GPU name. If it prints
 `CPU only` but `nvidia-smi` works, your `torch` wheel is the CPU build — reinstall
-a CUDA build, e.g.:
+a CUDA build that matches your driver, e.g.:
 
 ```bash
-cd app/backend
-uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-cd ../..
+.venv/bin/python -m pip install --force-reinstall torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ---
@@ -226,14 +228,14 @@ cd ../..
 env. Build a separate Python 3.11 venv at the repo root:
 
 ```bash
-uv venv --python 3.11 .venv-eval
-uv pip install --python .venv-eval \
+python3.11 -m venv .venv-eval
+.venv-eval/bin/python -m pip install \
   -r app/backend/inference/evaluation/requirements-scoring.txt
 ```
 
 > `torchaudio` must match the `torch` version `kadtk` resolves (e.g. torch
 > 2.5.x → torchaudio 2.5.x). If the install picks an incompatible build, pin it:
-> `uv pip install --python .venv-eval "torchaudio==2.5.*"`.
+> `.venv-eval/bin/python -m pip install "torchaudio==2.5.*"`.
 
 The scoring venv downloads model weights (VGGish, CLAP) on first use — that's
 expected.
@@ -246,8 +248,8 @@ Runs the whole pipeline end-to-end on **one** sound to catch setup problems fast
 **Both phase commands must run with `CWD = app/backend`.**
 
 ```bash
-# PHASE 1 — generate, in the PROJECT venv (uv run)
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1)
+# PHASE 1 — generate, in the PROJECT venv
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate --limit 1)
 
 # PHASE 2 — score, in the SCORING venv
 source .venv-eval/bin/activate
@@ -270,7 +272,7 @@ Once the smoke test passes, run the same two phases **without `--limit`**:
 
 ```bash
 # PHASE 1 — generate all sounds (PROJECT venv) — long, GPU recommended
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate)
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate)
 
 # PHASE 2 — score (SCORING venv)
 source .venv-eval/bin/activate
@@ -296,7 +298,8 @@ Because the phases are decoupled through the WAVs on disk, you can re-run
 | `--limit <n>`        | evaluate at most N sounds (smoke test)         |
 | `--device cpu\|cuda` | scoring device for kadtk (default: auto)       |
 
-Run `uv run python -m inference.evaluation.evaluate_model --help` for the full list.
+Run `../../.venv/bin/python -m inference.evaluation.evaluate_model --help` (from
+`app/backend`) for the full list.
 
 ---
 
@@ -304,13 +307,13 @@ Run `uv run python -m inference.evaluation.evaluate_model --help` for the full l
 
 | Symptom | Cause / fix |
 | ------- | ----------- |
-| `data-dir does not exist` / `no .wav files found` | Dataset missing — copy WAVs into `app/backend/inference/assets/` or pass `--data-dir` (step 4b). |
+| `data-dir does not exist` / `no .wav files found` | Pass an existing `--data-dir`, or run from the repo so the committed `assets/short/` + `assets/long/` are present (step 4b). |
 | Generate fails loading the flow model / file-not-found on a `.pt` | Checkpoints missing — copy them into `models/Full_150e/checkpoints/` (step 4a). |
 | `TexStat sources not found` | `ddsp_textures` / `torch_filterbanks` not initialised — redo the submodule + manual clone (step 3). |
 | `Scoring needs kadtk` | You're not in the `.venv-eval` scoring venv, or it wasn't installed — redo step 7 and `source .venv-eval/bin/activate`. |
 | `missing WAVs in .../reference` | You ran `--phase score` before `--phase generate` — run generate first. |
-| `CUDA available: False` but `nvidia-smi` works | CPU-only torch wheel installed — reinstall a CUDA build (step 6). |
-| torchaudio / torch version mismatch in scoring | Pin torchaudio to kadtk's resolved torch: `uv pip install --python .venv-eval "torchaudio==2.5.*"`. |
+| `CUDA available: False` but `nvidia-smi` works | CPU-only torch wheel installed — reinstall a CUDA build matching your driver (step 6). |
+| torchaudio / torch version mismatch in scoring | Pin torchaudio to kadtk's resolved torch: `.venv-eval/bin/python -m pip install "torchaudio==2.5.*"`. |
 | `libsndfile`/audio load errors | Install system audio libs: `sudo apt-get install -y libsndfile1 ffmpeg` (step 1). |
 
 ---
@@ -318,9 +321,10 @@ Run `uv run python -m inference.evaluation.evaluate_model --help` for the full l
 ## Quick reference (the whole thing, condensed)
 
 ```bash
-# 1. system deps + uv
+# 1. system deps + python 3.11/3.12
 sudo apt-get update && sudo apt-get install -y git curl build-essential libsndfile1 ffmpeg
-curl -LsSf https://astral.sh/uv/install.sh | sh && source "$HOME/.local/bin/env"
+sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3.11 python3.11-venv
 
 # 2. clone + submodules + torch_filterbanks
 git clone --recurse-submodules <REPO_URL> && cd S103-Interface-for-Generative-Audio-Latent-Interpolation
@@ -329,17 +333,18 @@ git clone https://github.com/cordutie/torch_filterbanks.git \
   modules/ddsp_textures/experiments/texstat/torch_filterbanks
 
 # 3. >>> copy model checkpoints into app/backend/inference/models/Full_150e/checkpoints/
-#    >>> copy source WAVs into app/backend/inference/assets/   (both are gitignored!)
+#    (library WAVs under assets/short|long are already committed)
 
-# 4. project venv (generate)
-(cd app/backend && uv sync)
+# 4. project venv (generate) — adjust the torch CUDA build in requirements.txt to your driver
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 
 # 5. scoring venv (score)
-uv venv --python 3.11 .venv-eval
-uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+python3.11 -m venv .venv-eval
+.venv-eval/bin/python -m pip install -r app/backend/inference/evaluation/requirements-scoring.txt
 
 # 6. smoke test
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1)
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate --limit 1)
 source .venv-eval/bin/activate
 (cd app/backend && python -m inference.evaluation.evaluate_model --phase score)
 deactivate

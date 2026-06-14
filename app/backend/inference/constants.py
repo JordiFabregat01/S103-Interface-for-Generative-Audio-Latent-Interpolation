@@ -1,27 +1,27 @@
 import os
 from pathlib import Path
 
-from inference.models import AudioElement
-
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 MODEL_DIR = Path(__file__).resolve().parent / "models" / "Full_150e"
 
 CACHE_DIR = ASSETS_DIR / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
-
-def _get_audio_asset_path(audio: AudioElement) -> Path:
-    return ASSETS_DIR / f"{audio.value}.wav"
-
-
-def _get_audio_cache_key(audio: AudioElement) -> str:
-    return audio.value
+# Library sounds live in per-kind subfolders so the "short" cherrypick and
+# "long" original variants (which can share a stem, e.g. BreakingWater) don't
+# collide. A sound is identified by (name, kind); the canonical cache key joins
+# them so the two variants get distinct .source.pt / embedding entries.
+SOUND_KINDS = ("short", "long")
 
 
-# Convenience maps derived from the helpers above. Kept for backwards
-# compatibility with notebooks and scripts that import these directly.
-AUDIO_ASSET_MAP = {audio: _get_audio_asset_path(audio) for audio in AudioElement}
-AUDIO_CACHE_MAP = {audio: _get_audio_cache_key(audio) for audio in AudioElement}
+def audio_asset_path(name: str, kind: str) -> Path:
+    """Absolute path to a library wav given its stem and kind."""
+    return ASSETS_DIR / kind / f"{name}.wav"
+
+
+def source_cache_key(name: str, kind: str) -> str:
+    """Canonical, collision-free source id, e.g. ``short__BreakingWater``."""
+    return f"{kind}__{name}"
 
 FLOW_MODEL_CKPT = Path(os.getenv("SCAPES_FLOW_MODEL_CKPT", MODEL_DIR / "checkpoints" / "best_flow_model.pt"))
 FLOW_MODEL_CONFIG = Path(os.getenv("SCAPES_FLOW_MODEL_CONFIG", MODEL_DIR / "checkpoints" / "flow_model_config.json"))
