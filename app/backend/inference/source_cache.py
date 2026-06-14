@@ -16,9 +16,8 @@ from typing import Optional
 
 import torch
 
-from inference.constants import CACHE_DIR
+from inference.constants import CACHE_DIR, audio_asset_path, source_cache_key
 from inference.interpolation import EncodedSource
-from inference.models import AudioElement
 from inference.scapes_runtime import FlowInference
 
 logger = logging.getLogger(__name__)
@@ -113,17 +112,19 @@ def encode_and_cache(
 
 def get_or_encode(
     engine: FlowInference,
-    audio: AudioElement,
+    name: str,
+    kind: str,
     *,
     audio_path: Optional[Path] = None,
     save_atoms: bool = False,
 ) -> EncodedSource:
-    """Return a cached EncodedSource, encoding from disk on a cache miss.
+    """Return a cached EncodedSource for the ``(name, kind)`` sound variant.
 
-    `audio_path` defaults to the asset path resolved from `AudioElement`. Passing
-    it explicitly lets callers point at uploads or alternate locations.
+    The cache id is ``f"{kind}__{name}"`` so the short and long variants of a
+    shared stem get distinct caches. `audio_path` defaults to
+    ``assets/{kind}/{name}.wav``; pass it explicitly to point at uploads.
     """
-    source_id = audio.value
+    source_id = source_cache_key(name, kind)
 
     try:
         return load_encoded_source(source_id)
@@ -131,8 +132,6 @@ def get_or_encode(
         logger.info("source cache miss for %r; encoding now", source_id)
 
     if audio_path is None:
-        from inference.constants import _get_audio_asset_path  # local to avoid cycles
-
-        audio_path = _get_audio_asset_path(audio)
+        audio_path = audio_asset_path(name, kind)
 
     return encode_and_cache(engine, audio_path, source_id, save_atoms=save_atoms)

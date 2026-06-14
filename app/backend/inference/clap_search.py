@@ -21,6 +21,7 @@ from inference.embeddings import (
     EMBEDDINGS_CACHE,
     SoundPoint,
     _get_clap,
+    _sound_key,
     get_sound_layout,
 )
 
@@ -114,16 +115,16 @@ def _rank_by_vector(
     top_idx = np.argpartition(neg_scores, k - 1)[:k]
     top_idx = top_idx[np.argsort(neg_scores[top_idx])]
 
-    layout = {p.filename: p for p in get_sound_layout()}
+    layout = {_sound_key(p.kind, p.filename): p for p in get_sound_layout()}
     hits: List[SearchHit] = []
     for idx in top_idx:
-        fname = filenames[idx]
-        point = layout.get(fname)
+        key = filenames[idx]
+        point = layout.get(key)
         if point is None:
             logger.warning(
                 "search cache references %r but layout has no matching point; "
                 "skipping (caches may be out of sync)",
-                fname,
+                key,
             )
             continue
         hits.append(SearchHit(point=point, score=float(scores[idx])))
@@ -144,26 +145,26 @@ def search_by_text(query: str, k: int = 8) -> List[SearchHit]:
     return _rank_by_vector(text_vec, k)
 
 
-def search_similar(filename: str, k: int = 8) -> List[SearchHit]:
-    """Rank library sounds by cosine similarity to the audio at ``filename``.
+def search_similar(filename: str, kind: str, k: int = 8) -> List[SearchHit]:
+    """Rank library sounds by cosine similarity to the ``(kind, filename)`` sound.
 
     The query sound itself is always excluded from the result, so a library
     of ``N`` sounds can return at most ``N - 1`` neighbours.
 
-    Raises :class:`KeyError` if ``filename`` isn't present in the cached
-    embedding matrix (typically because it was added after the last cache
-    build).
+    Raises :class:`KeyError` if the sound isn't present in the cached embedding
+    matrix (typically because it was added after the last cache build).
     """
     filename = (filename or "").strip()
     if not filename or k <= 0:
         return []
 
+    key = _sound_key(kind, filename)
     filenames, embeddings = _load_cache()
     try:
-        idx = filenames.index(filename)
+        idx = filenames.index(key)
     except ValueError as exc:
         raise KeyError(
-            f"{filename!r} not present in CLAP embeddings cache"
+            f"{key!r} not present in CLAP embeddings cache"
         ) from exc
 
     query_vec = np.asarray(embeddings[idx], dtype=np.float32)

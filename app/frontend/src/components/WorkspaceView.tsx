@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
-import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit } from "../api";
+import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit, type Kind } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 
 // start and duration are stored in seconds; pixels = value * pxPerSec
@@ -8,6 +8,7 @@ type TimelineClip = {
   id: number;
   name: string;
   filename: string;
+  kind: Kind;
   start: number;
   duration: number;
 };
@@ -265,6 +266,7 @@ export default function WorkspaceView() {
     }
   };
 
+  const [libraryTab, setLibraryTab] = useState<Kind>("long");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SoundHit[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -422,8 +424,8 @@ const getEmoji = (name: string, filename = "") => {
   if (lower.includes("cricket")) return "🦗";
 
   // HUMAN
-  if (lower.includes("snowsteps")) return "🥾❄️";
-if (lower.includes("footsteps")) return "/Footsteps_icon.png";
+  if (lower.includes("snow")) return "🥾❄️";
+  if (lower.includes("footstep")) return "🦶";
   if (lower.includes("keyboard")) return "⌨️";
 
   return "🎵";
@@ -450,7 +452,7 @@ const moveClip = (id: number, newStartSec: number) => {
       segments.push({ type: "silence", duration: first.start });
     }
     sorted.forEach((clip, index) => {
-      segments.push({ type: "clip", filename: clip.filename, duration: clip.duration });
+      segments.push({ type: "clip", filename: clip.filename, kind: clip.kind, duration: clip.duration });
       const next = sorted[index + 1];
       if (!next) return;
       const distanceSec = next.start - (clip.start + clip.duration);
@@ -461,6 +463,8 @@ const moveClip = (id: number, newStartSec: number) => {
             type: "interpolation",
             audio1: filenameToAudioElement(clip.filename),
             audio2: filenameToAudioElement(next.filename),
+            audio1_kind: clip.kind,
+            audio2_kind: next.kind,
             distance_sec: distanceSec,
             nfe: quality,
           });
@@ -474,6 +478,8 @@ const moveClip = (id: number, newStartSec: number) => {
           type: "interpolation",
           audio1: filenameToAudioElement(clip.filename),
           audio2: filenameToAudioElement(next.filename),
+          audio1_kind: clip.kind,
+          audio2_kind: next.kind,
           distance_sec: adjacent ? 0 : distanceSec,
           nfe: quality,
           ...(adjacent ? { duration_sec: Math.min(clip.duration, next.duration) } : {}),
@@ -566,7 +572,10 @@ const moveClip = (id: number, newStartSec: number) => {
 
   const canInterpolate = timelineClips.length >= 1;
 
-  const placedPoints = useMemo(() => sounds.map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })), [sounds]);
+  const placedPoints = useMemo(
+    () => sounds.filter((p) => p.kind === libraryTab).map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })),
+    [sounds, libraryTab],
+  );
 
 const selectedPathPoints = sortedClips
   .map((clip) =>
@@ -722,6 +731,7 @@ const selectedPath = selectedPathPoints
       id: t + i,
       name: p.name,
       filename: p.filename,
+      kind: p.kind,
       start: startSec + i * dur,
       duration: dur,
     }));
@@ -744,8 +754,8 @@ const selectedPath = selectedPathPoints
 
     const t = Date.now();
     setTimelineClips([
-      { id: t,     name: a.name, filename: a.filename, start: 0, duration: 5 },
-      { id: t + 1, name: b.name, filename: b.filename, start: 9, duration: 5 },
+      { id: t,     name: a.name, filename: a.filename, kind: a.kind, start: 0, duration: 5 },
+      { id: t + 1, name: b.name, filename: b.filename, kind: b.kind, start: 9, duration: 5 },
     ]);
     setInterpUrl("");
     setShowHowToUse(false);
@@ -1032,6 +1042,18 @@ const selectedPath = selectedPathPoints
           <h2>Sound Library</h2>
           <p className="library-hint">Click to preview · Drag to timeline</p>
 
+          <div className="library-tabs">
+            {(["long", "short"] as Kind[]).map((k) => (
+              <button
+                key={k}
+                className={`library-tab${libraryTab === k ? " active" : ""}`}
+                onClick={() => { setLibraryTab(k); setSelectedSound(null); previewPlayer.pause(); }}
+              >
+                {k === "long" ? "Long" : "Short"}
+              </button>
+            ))}
+          </div>
+
           <div className="library-search">
             <input
               className="library-search-input"
@@ -1059,6 +1081,7 @@ const selectedPath = selectedPathPoints
                 <p className="library-hint">No results for "{searchQuery}"</p>
               )}
               {(() => {
+                const inTab = (s: SoundPoint) => s.kind === libraryTab;
                 const renderCard = (sound: SoundPoint, extra = "") => (
                   <div
                     key={sound.id}
@@ -1071,31 +1094,31 @@ const selectedPath = selectedPathPoints
                       } else {
                         interpPlayer.pause();
                         setSelectedSound(sound);
-                        previewPlayer.play(getSoundUrl(sound.filename));
+                        previewPlayer.play(getSoundUrl(sound.filename, sound.kind));
                       }
                     }}
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, sound }); }}
                     onDragStart={() => { dragSoundRef.current = sound; }}
                     onDragEnd={() => { dragSoundRef.current = null; resetDragState(); }}
                   >
-                    <div className="sound-image">{getEmoji(sound.name)}</div>
+                    <div className="sound-image">{getEmoji(sound.name, sound.filename)}</div>
                     <p>{sound.name}</p>
                   </div>
                 );
 
                 if (similarTo && searchResults !== null) {
                   const similarIds = new Set(searchResults.map((s) => s.id));
-                  const others = sounds.filter((s) => !similarIds.has(s.id) && s.id !== similarTo.id);
+                  const others = sounds.filter((s) => inTab(s) && !similarIds.has(s.id) && s.id !== similarTo.id);
                   return (
                     <>
-                      {searchResults.map((s) => renderCard(s, "similar"))}
-                      {renderCard(similarTo, "similar-origin")}
+                      {searchResults.filter(inTab).map((s) => renderCard(s, "similar"))}
+                      {inTab(similarTo) && renderCard(similarTo, "similar-origin")}
                       {others.map((s) => renderCard(s))}
                     </>
                   );
                 }
 
-                return (searchResults ?? sounds).map((s) => renderCard(s));
+                return (searchResults ?? sounds).filter(inTab).map((s) => renderCard(s));
               })()}
             </div>
           </div>
@@ -1103,18 +1126,18 @@ const selectedPath = selectedPathPoints
           {selectedSound && (
             <div className="sound-preview-panel">
               <div className="sound-preview-header">
-                <span className="preview-name">{getEmoji(selectedSound.name)} {selectedSound.name}</span>
+                <span className="preview-name">{getEmoji(selectedSound.name, selectedSound.filename)} {selectedSound.name}</span>
                 <button className="close-preview-btn" onClick={() => { previewPlayer.pause(); setSelectedSound(null); }}>✕</button>
               </div>
               <div className="preview-controls">
                 <button
                   className="preview-play-btn"
-                  onClick={() => { interpPlayer.pause(); previewPlayer.seek(0); previewPlayer.play(getSoundUrl(selectedSound.filename)); }}
+                  onClick={() => { interpPlayer.pause(); previewPlayer.seek(0); previewPlayer.play(getSoundUrl(selectedSound.filename, selectedSound.kind)); }}
                   title="Restart"
                 >↺</button>
                 <button
                   className="preview-play-btn"
-                  onClick={() => previewPlayer.isPlaying ? previewPlayer.pause() : (interpPlayer.pause(), previewPlayer.play(getSoundUrl(selectedSound.filename)))}
+                  onClick={() => previewPlayer.isPlaying ? previewPlayer.pause() : (interpPlayer.pause(), previewPlayer.play(getSoundUrl(selectedSound.filename, selectedSound.kind)))}
                 >
                   {previewPlayer.isPlaying ? "⏸" : "▶"}
                 </button>
@@ -1140,7 +1163,7 @@ const selectedPath = selectedPathPoints
                   setSearchQuery("");
                   setSimilarTo(selectedSound);
                   setSearchLoading(true);
-                  findSimilarSounds(selectedSound.filename)
+                  findSimilarSounds(selectedSound.filename, selectedSound.kind)
                     .then(setSearchResults)
                     .catch(() => setSearchResults([]))
                     .finally(() => setSearchLoading(false));
@@ -1168,7 +1191,7 @@ const selectedPath = selectedPathPoints
                 setSimilarTo(contextMenu.sound);
                 setSearchLoading(true);
                 setContextMenu(null);
-                findSimilarSounds(contextMenu.sound.filename)
+                findSimilarSounds(contextMenu.sound.filename, contextMenu.sound.kind)
                   .then(setSearchResults)
                   .catch(() => setSearchResults([]))
                   .finally(() => setSearchLoading(false));
@@ -1263,13 +1286,13 @@ const selectedPath = selectedPathPoints
                         e.stopPropagation();
                         if (pathMode) return;
                         if (explorerSelected?.id === point.id) {
-                          if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename)); }
+                          if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename, point.kind)); }
                         } else {
                           explorerPlayer.pause();
                           interpPlayer.pause();
                           setPathPreviewing(false);
                           setExplorerSelected(point);
-                          explorerPlayer.play(getSoundUrl(point.filename));
+                          explorerPlayer.play(getSoundUrl(point.filename, point.kind));
                         }
                       }}
                       title={point.name}
@@ -1284,12 +1307,12 @@ const selectedPath = selectedPathPoints
               {explorerSelected && (
                 <div className="sound-preview-panel explorer-floating-preview">
                   <div className="sound-preview-header">
-                    <span className="preview-name">{getEmoji(explorerSelected.name)} {explorerSelected.name}</span>
+                    <span className="preview-name">{getEmoji(explorerSelected.name, explorerSelected.filename)} {explorerSelected.name}</span>
                     <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
                   </div>
                   <div className="preview-controls">
-                    <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename)); }} title="Restart">↺</button>
-                    <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename))}>
+                    <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename, explorerSelected.kind)); }} title="Restart">↺</button>
+                    <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename, explorerSelected.kind))}>
                       {explorerPlayer.isPlaying ? "⏸" : "▶"}
                     </button>
                     <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
@@ -1540,6 +1563,7 @@ const selectedPath = selectedPathPoints
                 id: Date.now(),
                 name: sound.name,
                 filename: sound.filename,
+                kind: sound.kind,
                 start: Math.max(0, dropX / pxPerSec - DEFAULT_CLIP_DURATION_SEC * (DEFAULT_PX_PER_SEC / pxPerSec) / 2),
                 duration: DEFAULT_CLIP_DURATION_SEC * (DEFAULT_PX_PER_SEC / pxPerSec),
               };

@@ -128,6 +128,41 @@
   letter-spacing: 0.02em;
 }
 
+/* ─── Library Tabs (short / long) ────────────────────────────── */
+.library-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.library-tab {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.library-tab:hover {
+  color: var(--text-1);
+}
+
+.library-tab.active {
+  background: var(--surface-0);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
 /* ─── Library Search ─────────────────────────────────────────── */
 .library-search {
   position: relative;

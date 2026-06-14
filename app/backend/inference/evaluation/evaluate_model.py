@@ -20,8 +20,8 @@ files on disk, because they need different Python environments:
 
 Usage (run with CWD = app/backend):
 
-    # phase 1, in the project venv
-    uv run python -m inference.evaluation.evaluate_model --phase generate
+    # phase 1, in the project venv (activate .venv first, or call its python)
+    python -m inference.evaluation.evaluate_model --phase generate
 
     # phase 2, in a venv with `pip install kadtk openpyxl`
     python -m inference.evaluation.evaluate_model --phase score

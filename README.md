@@ -43,32 +43,30 @@ You can install them independently, but both are required for full functionality
 
 # 🐍 Backend Installation
 
-## Option A — Using `uv` (Recommended)
+Create a virtual environment with the standard-library `venv` module and install
+the pinned dependencies. `requirements.txt` is **complete** — it already bundles
+the SCAPES, CLAP/`msclap`, and backend dependencies, so it's the only file you
+need.
 
-Install `uv` if needed:
+**Windows (PowerShell):**
 
-```bash
-pip install uv
-```
-
-Install dependencies:
-
-```bash
-# Main backend dependencies
-uv pip install -r requirements.txt
-
-# SCAPES dependencies
-uv pip install -r modules/scapes/requirements.txt
-```
-
----
-
-## Option B — Using `pip`
-
-```bash
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pip install -r modules/scapes/requirements.txt
 ```
+
+**macOS / Linux:**
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Requires **Python 3.12**. `requirements.txt` pins the **CUDA 12.8 (cu128)** torch
+build for GPU; see the comment at the top of the file to switch to a CPU-only
+build.
 
 ---
 
@@ -99,12 +97,15 @@ conda install -c conda-forge llvmlite numba librosa -y
 
 ### 3. Install Remaining Dependencies
 
-Now install the rest using `uv` or `pip`:
+Now install the rest with `pip` (inside the conda env):
 
 ```bash
-uv pip install -r requirements.txt
-uv pip install -r modules/scapes/requirements.txt
+pip install -r requirements.txt
 ```
+
+> On macOS there is no CUDA: edit the two `torch`/`torchaudio` lines in
+> `requirements.txt` to the plain `==2.11.0` (CPU) versions and drop the
+> `--extra-index-url`, per the note at the top of the file.
 
 ---
 
@@ -281,8 +282,8 @@ git clone https://github.com/cordutie/torch_filterbanks.git `
   modules/ddsp_textures/experiments/texstat/torch_filterbanks
 
 # dedicated Python 3.11 env for scoring (kept separate from the project venv)
-uv venv --python 3.11 .venv-eval
-uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+py -3.11 -m venv .venv-eval
+.venv-eval\Scripts\python -m pip install -r app/backend/inference/evaluation/requirements-scoring.txt
 ```
 
 **macOS / Linux (bash):**
@@ -291,13 +292,13 @@ uv pip install --python .venv-eval -r app/backend/inference/evaluation/requireme
 git submodule update --init modules/scapes modules/ddsp_textures
 git clone https://github.com/cordutie/torch_filterbanks.git \
   modules/ddsp_textures/experiments/texstat/torch_filterbanks
-uv venv --python 3.11 .venv-eval
-uv pip install --python .venv-eval -r app/backend/inference/evaluation/requirements-scoring.txt
+python3.11 -m venv .venv-eval
+.venv-eval/bin/python -m pip install -r app/backend/inference/evaluation/requirements-scoring.txt
 ```
 
 > ℹ️ `torchaudio` must match the `torch` version `kadtk` resolves (e.g. torch
 > 2.5.x → torchaudio 2.5.x). If the install picks an incompatible build, run
-> `uv pip install --python .venv-eval "torchaudio==2.5.*"` afterwards.
+> `.venv-eval/bin/python -m pip install "torchaudio==2.5.*"` afterwards.
 
 ### 2. Smoke Test (single sound)
 
@@ -309,7 +310,7 @@ Quickly checks the full pipeline end-to-end on one sound. Both phases need
 ```powershell
 # PHASE 1 — generate (PROJECT venv)
 cd app/backend
-uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1
+..\..\.venv\Scripts\python -m inference.evaluation.evaluate_model --phase generate --limit 1
 cd ../..
 
 # PHASE 2 — score (SCORING venv)
@@ -323,7 +324,7 @@ cd ../.. ; deactivate
 
 ```bash
 # PHASE 1 — generate (PROJECT venv)
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate --limit 1)
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate --limit 1)
 
 # PHASE 2 — score (SCORING venv)
 source .venv-eval/bin/activate
@@ -344,7 +345,7 @@ Once the smoke test passes, run the same two phases without `--limit`:
 ```powershell
 # PHASE 1 — generate all sounds (PROJECT venv)
 cd app/backend
-uv run python -m inference.evaluation.evaluate_model --phase generate
+..\..\.venv\Scripts\python -m inference.evaluation.evaluate_model --phase generate
 cd ../..
 
 # PHASE 2 — score (SCORING venv)
@@ -357,7 +358,7 @@ cd ../.. ; deactivate
 **macOS / Linux (bash):**
 
 ```bash
-(cd app/backend && uv run python -m inference.evaluation.evaluate_model --phase generate)
+(cd app/backend && ../../.venv/bin/python -m inference.evaluation.evaluate_model --phase generate)
 source .venv-eval/bin/activate
 (cd app/backend && python -m inference.evaluation.evaluate_model --phase score)
 deactivate
