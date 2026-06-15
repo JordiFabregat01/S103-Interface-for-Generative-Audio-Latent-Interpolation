@@ -2,35 +2,89 @@ const API_BASE = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
 
+export type Kind = "short" | "long";
+
 export type SoundPoint = {
   id: number;
   name: string;
   filename: string;
+  kind: Kind;
   x: number;
   y: number;
 };
 
+// Human-friendly display labels for the fixed library. Keyed by filename stem;
+// anything not listed falls back to a generic prettifier. Display-only — the
+// backend keeps using `filename` for serving and generation.
+const DISPLAY_NAMES: Record<string, string> = {
+  artic_wind: "Arctic Wind",
+  bees: "Bees",
+  bees_angry: "Angry Bees",
+  Birds_1: "Birds 1",
+  Birds_2: "Birds 2",
+  BreakingWater: "Breaking Water",
+  breeze: "Breeze",
+  camp_fire_hard_crackle: "Campfire (Hard Crackle)",
+  camp_fire_soft_crackle: "Campfire (Soft Crackle)",
+  Cicadas: "Cicadas",
+  CornfieldWind: "Cornfield Wind",
+  crickets: "Crickets",
+  footsteps: "Footsteps",
+  IceStorm: "Ice Storm",
+  IntenseBreeze_2: "Intense Breeze",
+  Keyboard: "Keyboard",
+  Rain: "Rain",
+  RainOnLeaves: "Rain on Leaves",
+  Seagulls_1: "Seagulls 1",
+  Seagulls_2: "Seagulls 2",
+  SeaWaves: "Sea Waves",
+  SlowRiver: "Slow River",
+  snow_steps: "Snow Steps",
+  thunder_storm_big_thunder: "Thunderstorm (Close)",
+  thunder_storm_far_thunder: "Thunderstorm (Distant)",
+  UnderwaterFlow: "Underwater Flow",
+  waterfall: "Waterfall",
+  WaterOnRocks: "Water on Rocks",
+  "wind&rain": "Wind & Rain",
+};
+
+export const prettyName = (filename: string): string => {
+  const stem = filename.replace(/\.[^.]+$/, "");
+  if (DISPLAY_NAMES[stem]) return DISPLAY_NAMES[stem];
+  return stem
+    .replace(/[_&]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const withDisplayName = <T extends SoundPoint>(s: T): T => ({
+  ...s,
+  name: prettyName(s.filename),
+});
+
 export const getSounds = (): Promise<SoundPoint[]> =>
   fetch(`${API_BASE}/sounds`).then((res) => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return res.json().then((arr: SoundPoint[]) => arr.map(withDisplayName));
   });
 
-export const getSoundUrl = (filename: string): string =>
-  `${API_BASE}/sounds/${encodeURIComponent(filename)}`;
+export const getSoundUrl = (filename: string, kind: Kind): string =>
+  `${API_BASE}/sounds/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}`;
 
 export type SoundHit = SoundPoint & { score: number };
 
 export const searchSounds = (q: string, k = 8): Promise<SoundHit[]> =>
   fetch(`${API_BASE}/sounds/search?q=${encodeURIComponent(q)}&k=${k}`).then((res) => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return res.json().then((arr: SoundHit[]) => arr.map(withDisplayName));
   });
 
-export const findSimilarSounds = (filename: string, k = 8): Promise<SoundHit[]> =>
-  fetch(`${API_BASE}/sounds/${encodeURIComponent(filename)}/similar?k=${k}`).then((res) => {
+export const findSimilarSounds = (filename: string, kind: Kind, k = 8): Promise<SoundHit[]> =>
+  fetch(`${API_BASE}/sounds/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}/similar?k=${k}`).then((res) => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    return res.json().then((arr: SoundHit[]) => arr.map(withDisplayName));
   });
 
 export type InterpolationRequest = {
@@ -45,6 +99,7 @@ export type InterpolationRequest = {
 export type ClipSegment = {
   type: "clip";
   filename: string;
+  kind: Kind;
   duration: number;
 };
 
@@ -57,6 +112,8 @@ export type InterpolationSegment = {
   type: "interpolation";
   audio1: string;
   audio2: string;
+  audio1_kind: Kind;
+  audio2_kind: Kind;
   distance_sec?: number;
   duration_sec?: number;
   nfe?: number;

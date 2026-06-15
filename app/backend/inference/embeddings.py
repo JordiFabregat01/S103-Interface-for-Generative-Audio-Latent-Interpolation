@@ -11,7 +11,7 @@ import librosa
 import numpy as np
 import torch
 
-from inference.constants import ASSETS_DIR, CACHE_DIR
+from inference.constants import ASSETS_DIR, CACHE_DIR, SOUND_KINDS
 from inference.scapes_runtime import CLAPWrapper
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,14 @@ class SoundPoint:
     id: int
     name: str
     filename: str
+    kind: str
     x: float
     y: float
+
+
+def _sound_key(kind: str, filename: str) -> str:
+    """Collision-free identity for caches/lookups, e.g. ``short/BreakingWater.wav``."""
+    return f"{kind}/{filename}"
 
 
 @lru_cache(maxsize=1)
@@ -40,10 +46,22 @@ def _get_clap() -> CLAPWrapper:
     return CLAPWrapper(version="2023", use_cuda=use_cuda)
 
 
-def _list_wav_files() -> List[Path]:
+def _list_wav_files() -> List[tuple[Path, str]]:
+    """Return ``(path, kind)`` for every wav across the per-kind subfolders.
+
+    Sorted by kind then name so the embedding/layout caches have a stable order.
+    """
     if not DATA_DIR.exists():
         raise FileNotFoundError(f"Data directory not found: {DATA_DIR}")
-    return sorted(p for p in DATA_DIR.iterdir() if p.suffix.lower() == ".wav")
+    out: List[tuple[Path, str]] = []
+    for kind in SOUND_KINDS:
+        kind_dir = DATA_DIR / kind
+        if not kind_dir.exists():
+            continue
+        for p in kind_dir.iterdir():
+            if p.suffix.lower() == ".wav":
+                out.append((p, kind))
+    return sorted(out, key=lambda pk: (pk[1], pk[0].name))
 
 
 def _segment_waveform(waveform: np.ndarray, sr: int, segment_sec: float = SEGMENT_SECONDS) -> List[np.ndarray]:
@@ -93,16 +111,16 @@ def _save_embeddings_cache(filenames: List[str], embeddings: np.ndarray) -> None
     np.savez(EMBEDDINGS_CACHE, filenames=np.array(filenames), embeddings=embeddings)
 
 
-def _compute_all_embeddings(wav_files: List[Path]) -> np.ndarray:
-    filenames = [p.name for p in wav_files]
-    cached = _load_cached_embeddings(filenames)
+def _compute_all_embeddings(wav_files: List[tuple[Path, str]]) -> np.ndarray:
+    keys = [_sound_key(kind, p.name) for p, kind in wav_files]
+    cached = _load_cached_embeddings(keys)
     if cached is not None:
         return cached
 
     clap = _get_clap()
     logger.info(f"Computing CLAP embeddings for {len(wav_files)} files...")
-    embeddings = np.stack([_compute_file_embedding(p, clap) for p in wav_files])
-    _save_embeddings_cache(filenames, embeddings)
+    embeddings = np.stack([_compute_file_embedding(p, clap) for p, _ in wav_files])
+    _save_embeddings_cache(keys, embeddings)
     return embeddings
 
 
@@ -123,7 +141,7 @@ def _normalize(coords: np.ndarray) -> np.ndarray:
     return (coords - mins) / spans
 
 
-def _layout_from_files(wav_files: List[Path]) -> List[SoundPoint]:
+def _layout_from_files(wav_files: List[tuple[Path, str]]) -> List[SoundPoint]:
     embeddings = _compute_all_embeddings(wav_files)
     coords_2d = _run_tsne(embeddings)
     coords_norm = _normalize(coords_2d)
@@ -133,23 +151,24 @@ def _layout_from_files(wav_files: List[Path]) -> List[SoundPoint]:
             id=i,
             name=path.stem,
             filename=path.name,
+            kind=kind,
             x=float(coords_norm[i, 0]),
             y=float(coords_norm[i, 1]),
         )
-        for i, path in enumerate(wav_files)
+        for i, (path, kind) in enumerate(wav_files)
     ]
 
 
 def get_sound_layout(force: bool = False) -> List[SoundPoint]:
     wav_files = _list_wav_files()
-    filenames = [p.name for p in wav_files]
+    keys = [_sound_key(kind, p.name) for p, kind in wav_files]
 
     if not force and LAYOUT_CACHE.exists():
         try:
             with LAYOUT_CACHE.open("r", encoding="utf-8") as f:
                 cached = json.load(f)
-            cached_filenames = [item["filename"] for item in cached]
-            if cached_filenames == filenames:
+            cached_keys = [_sound_key(item["kind"], item["filename"]) for item in cached]
+            if cached_keys == keys:
                 logger.info("Returning cached t-SNE layout.")
                 return [SoundPoint(**item) for item in cached]
         except Exception as exc:
@@ -164,9 +183,11 @@ def get_sound_layout(force: bool = False) -> List[SoundPoint]:
     return layout
 
 
-def resolve_audio_file(filename: str) -> Path:
+def resolve_audio_file(filename: str, kind: str) -> Path:
     safe_name = Path(filename).name
-    candidate = DATA_DIR / safe_name
+    if kind not in SOUND_KINDS:
+        raise FileNotFoundError(f"Unknown sound kind: {kind!r}")
+    candidate = DATA_DIR / kind / safe_name
     if not candidate.exists() or candidate.suffix.lower() != ".wav":
-        raise FileNotFoundError(f"Audio file not found: {safe_name}")
+        raise FileNotFoundError(f"Audio file not found: {kind}/{safe_name}")
     return candidate

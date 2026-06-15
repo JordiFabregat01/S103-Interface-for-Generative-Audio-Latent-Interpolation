@@ -99,6 +99,7 @@ def search_sounds(q: str, k: int = 8):
             "id": hit.point.id,
             "name": hit.point.name,
             "filename": hit.point.filename,
+            "kind": hit.point.kind,
             "x": hit.point.x,
             "y": hit.point.y,
             "score": hit.score,
@@ -107,27 +108,25 @@ def search_sounds(q: str, k: int = 8):
     ]
 
 
-@app.get("/sounds/{filename}/similar")
-def similar_sounds(filename: str, k: int = 8):
-    """Rank library sounds by CLAP cosine similarity to ``filename``.
+@app.get("/sounds/{kind}/{filename}/similar")
+def similar_sounds(kind: str, filename: str, k: int = 8):
+    """Rank library sounds by CLAP cosine similarity to the ``(kind, filename)`` sound.
 
-    The query sound itself is excluded from the response. Declared **before**
-    ``/sounds/{filename}`` so the more-specific ``/similar`` suffix wins the
-    path match.
+    The query sound itself is excluded from the response.
     """
     if not filename.strip():
         raise HTTPException(status_code=400, detail="filename must be non-empty")
     if not 1 <= k <= 50:
         raise HTTPException(status_code=400, detail="k must be in [1, 50]")
     try:
-        hits = search_similar(filename, k=k)
+        hits = search_similar(filename, kind, k=k)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         logger.warning(f"search cache missing: {exc}")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error(f"similar search failed for filename={filename!r}: {exc}")
+        logger.error(f"similar search failed for {kind}/{filename!r}: {exc}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="similar search failed") from exc
 
@@ -136,6 +135,7 @@ def similar_sounds(filename: str, k: int = 8):
             "id": hit.point.id,
             "name": hit.point.name,
             "filename": hit.point.filename,
+            "kind": hit.point.kind,
             "x": hit.point.x,
             "y": hit.point.y,
             "score": hit.score,
@@ -144,10 +144,10 @@ def similar_sounds(filename: str, k: int = 8):
     ]
 
 
-@app.get("/sounds/{filename}")
-def get_sound_audio(filename: str):
+@app.get("/sounds/{kind}/{filename}")
+def get_sound_audio(kind: str, filename: str):
     try:
-        path = resolve_audio_file(filename)
+        path = resolve_audio_file(filename, kind)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return FileResponse(path, media_type="audio/wav", filename=path.name)
@@ -197,10 +197,12 @@ def interpolate(payload: InterpolationElement):
     should poll ``/jobs/{job_id}`` and fetch ``/jobs/{job_id}/result.wav``.
     """
     logger.info(
-        "Received (deprecated) interpolation request: %s <-> %s "
+        "Received (deprecated) interpolation request: %s/%s <-> %s/%s "
         "(distance_sec=%.3f, duration_sec=%s, context_mode=%s, nfe=%d)",
-        payload.audio1.value,
-        payload.audio2.value,
+        payload.audio1_kind,
+        payload.audio1,
+        payload.audio2_kind,
+        payload.audio2,
         payload.distance_sec,
         f"{payload.duration_sec:.3f}" if payload.duration_sec is not None else "auto",
         payload.context_mode,
@@ -209,6 +211,8 @@ def interpolate(payload: InterpolationElement):
     segment = InterpolationSegment(
         audio1=payload.audio1,
         audio2=payload.audio2,
+        audio1_kind=payload.audio1_kind,
+        audio2_kind=payload.audio2_kind,
         distance_sec=payload.distance_sec,
         duration_sec=payload.duration_sec,
         a_anchor_sec=payload.a_anchor_sec,
@@ -251,9 +255,11 @@ def render_async(payload: InterpolationElement):
     :class:`InterpolationElement`.
     """
     logger.info(
-        "Render job requested: %s <-> %s (distance_sec=%.3f, duration_sec=%s)",
-        payload.audio1.value,
-        payload.audio2.value,
+        "Render job requested: %s/%s <-> %s/%s (distance_sec=%.3f, duration_sec=%s)",
+        payload.audio1_kind,
+        payload.audio1,
+        payload.audio2_kind,
+        payload.audio2,
         payload.distance_sec,
         f"{payload.duration_sec:.3f}" if payload.duration_sec is not None else "auto",
     )
