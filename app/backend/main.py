@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -22,9 +23,20 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# CORS origins are configured via the FRONTEND_ORIGINS env var (comma-separated).
+# Local dev defaults are always included so `npm run dev` keeps working.
+_DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_env_origins = [
+    origin.strip()
+    for origin in os.environ.get("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
+_allowed_origins = list(dict.fromkeys(_DEFAULT_ORIGINS + _env_origins))
+logger.info("CORS allowed origins: %s", _allowed_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

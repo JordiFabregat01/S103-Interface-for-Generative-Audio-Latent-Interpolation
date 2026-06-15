@@ -28,4 +28,5 @@ app/frontend/build/
 
 # Project specific
 app/backend/inference/weights/
-modules/
+# NOTE: modules/ (SCAPES submodule) MUST be included in the build context.
+# scapes_runtime.py loads it from <repo_root>/modules/scapes.

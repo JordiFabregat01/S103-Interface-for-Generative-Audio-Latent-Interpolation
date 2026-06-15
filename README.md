@@ -1,3 +1,14 @@
+---
+title: S103 Backend
+emoji: 🎵
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: SCAPES latent-interpolation backend for S103.
+---
+
 # S103 – Interface for Generative Audio Latent Interpolation
 
 This repository contains the work of group **S103** for the *Taller de Musicologia* course. It provides an interface for exploring generative audio through latent space interpolation, combining a Python backend with a TypeScript/Vite frontend, and integrating the **SCAPES** module.
