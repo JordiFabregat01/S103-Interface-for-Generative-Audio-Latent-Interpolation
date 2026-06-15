@@ -127,25 +127,36 @@
   letter-spacing: 0.02em;
 }
 
+/* ─── Library Header (title + toggle) ────────────────────────── */
+.library-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.library-header-text {
+  min-width: 0;
+}
+
 /* ─── Library Tabs (short / long) ────────────────────────────── */
 .library-tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 10px;
+  flex-shrink: 0;
+  gap: 2px;
   background: var(--bg-2);
   border: 1px solid var(--border-1);
-  border-radius: 8px;
-  padding: 3px;
+  border-radius: 7px;
+  padding: 2px;
 }
 
 .library-tab {
-  flex: 1;
-  padding: 6px 10px;
+  padding: 4px 9px;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;

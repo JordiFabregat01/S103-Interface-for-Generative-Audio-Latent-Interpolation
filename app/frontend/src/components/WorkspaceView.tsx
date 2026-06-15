@@ -1130,19 +1130,23 @@ const selectedPath = selectedPathPoints
     gridTemplateColumns: `${libraryWidth}% 8px ${100 - libraryWidth}%`,
   }}>
         <div className="library-panel">
-          <h2>Sound Library</h2>
-          <p className="library-hint">Click to preview · Drag to timeline</p>
+          <div className="library-header">
+            <div className="library-header-text">
+              <h2>Sound Library</h2>
+              <p className="library-hint">Click to preview · Drag to timeline</p>
+            </div>
 
-          <div className="library-tabs">
-            {(["long", "short"] as Kind[]).map((k) => (
-              <button
-                key={k}
-                className={`library-tab${libraryTab === k ? " active" : ""}`}
-                onClick={() => { setLibraryTab(k); setSelectedSound(null); previewPlayer.pause(); }}
-              >
-                {k === "long" ? "Long" : "Short"}
-              </button>
-            ))}
+            <div className="library-tabs">
+              {(["long", "short"] as Kind[]).map((k) => (
+                <button
+                  key={k}
+                  className={`library-tab${libraryTab === k ? " active" : ""}`}
+                  onClick={() => { setLibraryTab(k); setSelectedSound(null); previewPlayer.pause(); }}
+                >
+                  {k === "long" ? "Long" : "Short"}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="library-search">
