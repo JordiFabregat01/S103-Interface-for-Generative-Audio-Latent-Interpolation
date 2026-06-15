@@ -52,6 +52,8 @@ RUN sed -i \
         -e '/^--extra-index-url.*cu128/d' \
         -e '/^torch==.*+cu128/d' \
         -e '/^torchaudio==.*+cu128/d' \
+        -e '/^pywinpty/d' \
+        -e '/^pywin32/d' \
         /tmp/requirements.txt \
  && pip install --no-cache-dir --user -r /tmp/requirements.txt
 
