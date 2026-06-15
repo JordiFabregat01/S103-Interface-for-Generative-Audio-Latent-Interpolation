@@ -39,6 +39,7 @@ from inference.constants import (
     FLOW_MODEL_CONFIG,
     LOCAL_ENCODER_CKPT,
     LOCAL_ENCODER_CONFIG,
+    source_cache_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -271,15 +272,15 @@ def render_interpolation_audio(request: InterpolationElement) -> bytes:
     return render_timeline_audio(timeline_request)
 
 
-def _get_or_encode_source_by_filename(filename: str) -> EncodedSource:
-    """Cache-aware source loader keyed by the WAV file's stem.
+def _get_or_encode_source_by_filename(filename: str, kind: str) -> EncodedSource:
+    """Cache-aware source loader for a timeline clip's ``(filename, kind)``.
 
-    Mirrors :func:`get_or_encode` but accepts any asset filename instead of the
-    ``AudioElement`` enum, so timeline clip segments (which only carry the raw
-    filename) reuse the same on-disk cache.
+    Resolves the wav under ``assets/{kind}/`` and keys the cache by
+    ``f"{kind}__{stem}"`` so it shares the exact cache entry the interpolation
+    path (``get_or_encode``) would build for the same sound variant.
     """
-    path = resolve_audio_file(filename)
-    source_id = path.stem
+    path = resolve_audio_file(filename, kind)
+    source_id = source_cache_key(path.stem, kind)
     try:
         return load_encoded_source(source_id)
     except FileNotFoundError:
@@ -413,12 +414,15 @@ def _neighbor_clip_context(
     while 0 <= i < len(segs):
         seg = segs[i]
         if seg.type == "clip":
-            src = _get_or_encode_source_by_filename(seg.filename)
+            src = _get_or_encode_source_by_filename(seg.filename, seg.kind)
             ctx = src.contexts[-1] if step < 0 else src.contexts[0]
             return ctx.to(engine.device)
         if seg.type == "interpolation":
-            element_audio = seg.audio2 if step < 0 else seg.audio1
-            src = get_or_encode(engine, element_audio)
+            if step < 0:
+                element_audio, element_kind = seg.audio2, seg.audio2_kind
+            else:
+                element_audio, element_kind = seg.audio1, seg.audio1_kind
+            src = get_or_encode(engine, element_audio, element_kind)
             ctx = src.contexts[-1] if step < 0 else src.contexts[0]
             return ctx.to(engine.device)
         i += step
@@ -502,7 +506,7 @@ def build_unified_timeline_schedule(
         atom_offset = len(schedule)
 
         if seg.type == "clip":
-            source = _get_or_encode_source_by_filename(seg.filename)
+            source = _get_or_encode_source_by_filename(seg.filename, seg.kind)
             ctx = build_clip_context_schedule(source, seg.duration, engine)
             start = min(head_trim_atoms[idx], len(ctx))
             end = max(start, len(ctx) - tail_trim_atoms[idx])
@@ -516,8 +520,8 @@ def build_unified_timeline_schedule(
             schedule.extend(ctx[start:end])
 
         elif seg.type == "interpolation":
-            src_a = get_or_encode(engine, seg.audio1)
-            src_b = get_or_encode(engine, seg.audio2)
+            src_a = get_or_encode(engine, seg.audio1, seg.audio1_kind)
+            src_b = get_or_encode(engine, seg.audio2, seg.audio2_kind)
             a_anchor, b_anchor = anchor_overrides.get(
                 idx, (seg.a_anchor_sec, seg.b_anchor_sec)
             )

@@ -1,3 +1,6 @@
 [submodule "modules/scapes"]
 	path = modules/scapes
 	url = https://github.com/cordutie/SCAPES.git
+[submodule "modules/ddsp_textures"]
+	path = modules/ddsp_textures
+	url = https://github.com/cordutie/ddsp_textures.git
