@@ -368,6 +368,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  height: 28px;
   margin-bottom: 8px;
 }
 
@@ -376,6 +378,20 @@
   font-weight: 600;
   color: var(--text-1);
   letter-spacing: 0.02em;
+}
+
+.preview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.preview-header-actions .find-similar-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 4px 10px;
+  white-space: nowrap;
 }
 
 .preview-controls {
@@ -503,13 +519,19 @@
 .dot-label {
   font-size: 9px;
   font-family: var(--font-mono);
-  color: var(--text-3);
+  color: var(--text-2);
   margin-top: 5px;
   white-space: nowrap;
   pointer-events: none;
   letter-spacing: 0.04em;
-  opacity: 0.62;
+  opacity: 0.85;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
   transition: opacity 0.15s, color 0.15s;
+}
+
+.light-theme .dot-label {
+  color: var(--text-1);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
 }
 
 .dot:hover {
@@ -614,6 +636,10 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
+  /* Fixed row height so the result player / loading state never grow the header
+     and squeeze the track below it. */
+  flex: 0 0 auto;
+  height: 34px;
 }
 
 .timeline-header h2 {
@@ -688,7 +714,7 @@
   overflow-y: visible;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   scrollbar-width: thin;
   scrollbar-color: var(--border-2) transparent;
 }
@@ -728,8 +754,8 @@
 /* ─── Timeline Track ─────────────────────────────────────────── */
 .timeline {
   position: relative;
-  height: 100%;
-  min-height: 100px;
+  flex: 1;
+  min-height: 0;
   background:
     repeating-linear-gradient(
       to right,
@@ -1155,6 +1181,14 @@
   margin-bottom: 10px;
 }
 
+.render-time {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--success);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .interp-error {
   font-size: 11px;
   font-family: var(--font-mono);
@@ -1170,7 +1204,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
+  height: 28px;
+  padding: 0 10px;
   background: linear-gradient(
     90deg,
     var(--surface-1) 0%,
@@ -1186,6 +1221,11 @@
   letter-spacing: 0.04em;
   white-space: nowrap;
   animation: result-arrive 1.4s ease-out forwards;
+}
+
+.interp-result .preview-play-btn {
+  width: 22px;
+  height: 22px;
 }
 
 @keyframes result-arrive {
@@ -1319,17 +1359,35 @@ button {
   gap: 10px;
 }
 .theme-selector {
-  margin-top: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.theme-selector label {
+  min-width: 52px;
 }
 
 .quality-selector label {
+  min-width: 52px;
+}
+
+.quality-selector select,
+.theme-selector select {
+  flex: 1;
+}
+
+.quality-selector label,
+.theme-selector label {
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
 
-.quality-selector select {
+.quality-selector select,
+.theme-selector select {
   background: var(--surface-2);
   color: var(--text-1);
   border: 1px solid var(--border-1);
@@ -1342,11 +1400,13 @@ button {
   transition: border-color 0.15s;
 }
 
-.quality-selector select:hover {
+.quality-selector select:hover,
+.theme-selector select:hover {
   border-color: var(--border-2);
 }
 
-.quality-selector select:focus {
+.quality-selector select:focus,
+.theme-selector select:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -1513,46 +1573,11 @@ button {
   gap: 10px;
 }
 
-.how-to-demo-media {
-  width: 100%;
-  border-radius: 5px;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-0);
+.demo-header-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 80px;
-}
-
-.demo-gif {
-  display: block;
-  width: 100%;
-  max-height: 210px;
-  object-fit: contain;
-  border-radius: 5px;
-}
-
-.demo-timeline-img {
-  display: block;
-  width: 100%;
-  border-radius: 5px;
-  border: 1px solid var(--border-0);
-}
-
-.demo-gif-placeholder {
-  padding: 20px;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--text-3);
-  text-align: center;
-  letter-spacing: 0.04em;
-}
-
-.how-to-demo-audio {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .demo-audio-label {
@@ -1562,6 +1587,32 @@ button {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-3);
+}
+
+.demo-audio-sub {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.how-to-demo-media {
+  width: 100%;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--border-0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.demo-gif {
+  display: block;
+  width: 100%;
+  max-height: 210px;
+  object-fit: contain;
+  border-radius: 5px;
 }
 
 .demo-audio-row {
@@ -2067,7 +2118,7 @@ kbd {
 .drawn-path-line {
   fill: none;
   stroke: rgba(110, 231, 212, 0.85);
-  stroke-width: 0.5;
+  stroke-width: 0.4;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 1.2 0.6;
@@ -2077,6 +2128,42 @@ kbd {
   fill: #6ee7d4;
   stroke: rgba(255, 255, 255, 0.85);
   stroke-width: 0.4;
+}
+
+/* Emoji marker on a drawn-path node (HTML overlay, never distorted) */
+/* Numbered marker on a drawn-path node (HTML overlay, never distorted) */
+.drawn-path-node-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #6ee7d4;
+  color: #0a2a26;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.light-theme .drawn-path-node-marker {
+  background: #0d9488;
+  color: #e0fffa;
+}
+
+.drawn-path-arrow-head {
+  fill: #6ee7d4;
+}
+
+.light-theme .drawn-path-arrow-head {
+  fill: #0d9488;
 }
 
 /* Path confirm modal */
@@ -2209,10 +2296,9 @@ kbd {
 .timeline-panel {
   display: flex;
   flex-direction: column;
-
-  min-height: 200px;
-  max-height: 500px;
-
+  /* Fixed, viewport-scaled height: same proportions on any screen, and nothing
+     inside (header, result player, clips) can resize it. */
+  height: clamp(180px, 23vh, 290px);
   overflow: hidden;
 }
 /* ─── Light Theme Improvements ─────────────────────────────── */
@@ -2222,9 +2308,9 @@ kbd {
 }
 
 .light-theme .interpolate-btn {
-  background: #1e90ff;
-  color: white;
-  border-color: #1e90ff;
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .light-theme .library-panel,
@@ -2241,27 +2327,131 @@ kbd {
   border-bottom: 1px solid #dbe2ea;
 }
 
-.render-library {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--surface-0);
-  border: 1px solid var(--border-1);
-  border-radius: 6px;
+/* Explorer / latent-space plot — soft light canvas instead of dark slate */
+.light-theme .explorer-plot-wrap {
+  background-color: #e0e7f1;
+  background-image:
+    radial-gradient(circle, rgba(100, 116, 139, 0.28) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 50%, rgba(30, 144, 255, 0.05) 0%, transparent 60%),
+    radial-gradient(ellipse at 15% 85%, rgba(45, 212, 191, 0.05) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 20%, rgba(56, 189, 248, 0.05) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, transparent 42%, rgba(148, 163, 184, 0.22) 100%);
+  background-size: 24px 24px, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
+  border-color: var(--border-1);
 }
 
-.render-library h3 {
-  margin: 0 0 10px;
-  font-size: 12px;
+.light-theme .explorer-minimap {
+  background: #e3eaf3;
+}
+
+.light-theme .minimap-viewport {
+  fill: rgba(30, 144, 255, 0.12);
+  stroke: rgba(30, 144, 255, 0.85);
+}
+
+.light-theme .drawn-path-line {
+  stroke: rgba(13, 148, 136, 0.9);
+}
+
+.light-theme .drawn-path-node {
+  fill: #0d9488;
+  stroke: rgba(255, 255, 255, 0.9);
+}
+
+.light-theme .drawn-path-actions .btn-primary,
+.light-theme .path-modal-actions .btn-primary,
+.light-theme .explorer-path-btn.active {
+  background: rgba(13, 148, 136, 0.14);
+  border-color: rgba(13, 148, 136, 0.5);
+  color: #0f766e;
+}
+
+.light-theme .drawn-path-actions .btn-primary:hover,
+.light-theme .path-modal-actions .btn-primary:hover {
+  background: rgba(13, 148, 136, 0.22);
+}
+
+/* Dot markers: white halo for contrast on the light canvas */
+.light-theme .dot-marker {
+  background:
+    radial-gradient(circle at 33% 27%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.35) 18%, transparent 42%),
+    var(--dot-color, var(--accent));
+  box-shadow:
+    0 0 0 0.5px rgba(15, 23, 42, 0.18),
+    0 1px 3px rgba(15, 23, 42, 0.22),
+    0 0 6px 1px var(--dot-glow, var(--accent-glow));
+}
+
+/* Text/borders that were hardcoded white-on-dark */
+.light-theme .library-hint,
+.light-theme .library-tab,
+.light-theme .explorer-section-label,
+.light-theme .explorer-tool-hint,
+.light-theme .distance-pair {
   color: var(--text-2);
-  text-transform: uppercase;
+}
+
+.light-theme .filter-chip {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.light-theme .filter-chip:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.light-theme .explorer-distance-readout {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+/* Timeline beat divider lines */
+.light-theme .timeline {
+  background:
+    repeating-linear-gradient(
+      to right,
+      var(--surface-1) 0,
+      var(--surface-1) 79px,
+      var(--border-0) 79px,
+      var(--border-0) 80px
+    ),
+    var(--surface-1);
+}
+
+/* Autosave toast — light variant of the dark green pill */
+.light-theme .autosave-indicator {
+  border-color: rgba(22, 163, 74, 0.28);
+  background: rgba(240, 253, 244, 0.95);
+  color: #15803d;
+  box-shadow: 0 2px 12px rgba(22, 163, 74, 0.12);
+}
+
+/* Interpolation path arrows — the "ready" path is white by default, invisible
+   on the light canvas. Use a dark slate stroke instead. */
+.light-theme .interpolation-path.ready {
+  stroke: rgba(30, 41, 59, 0.7);
+}
+
+.light-theme .interpolation-path.ready:hover {
+  stroke: rgba(30, 41, 59, 0.95);
+  filter: drop-shadow(0 0 4px rgba(36, 119, 230, 0.35));
+}
+
+/* Softer popover/modal shadows on light */
+.light-theme .sound-context-menu,
+.light-theme .settings-panel,
+.light-theme .info-modal {
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+}
+
+.render-library-list {
+  display: flex;
+  flex-direction: column;
 }
 
 .render-library-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 4px;
   border-top: 1px solid var(--border-0);
 }
 
@@ -2269,9 +2459,109 @@ kbd {
   border-top: none;
 }
 
+.render-library-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.render-recipe {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.render-recipe-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.render-recipe-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  background: var(--surface-3);
+  border: 1px solid var(--border-1);
+  border-radius: 999px;
+}
+
+.render-recipe-link {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  color: var(--text-3);
+}
+
+.render-recipe-link-symbol {
+  font-size: 12px;
+}
+
+.render-recipe-link-label {
+  font-size: 8px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.render-recipe-link.interp { color: var(--accent); }
+.render-recipe-link.overlap { color: #fb923c; }
+.render-recipe-link.adjacent { color: var(--success); }
+.render-recipe-link.silence { color: var(--text-3); }
+
+.render-library-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.render-preview-pop {
+  animation: render-preview-pop 0.9s ease-out;
+}
+
+@keyframes render-preview-pop {
+  0%   { transform: scale(0.96); border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); }
+  45%  { transform: scale(1.01); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+  100% { transform: scale(1); box-shadow: none; }
+}
+
+.render-library-time {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  letter-spacing: 0.03em;
+}
+
 .render-library-actions {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
+}
+
+.render-library-actions .download-btn {
+  margin-left: 0;
+  height: 28px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  line-height: 1;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
 }
  

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "../App.css";
 import { getSounds, getSoundUrl, searchSounds, findSimilarSounds, render, cancelRender, type Segment, type SoundPoint, type SoundHit, type Kind } from "../api";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
+import { getAllRenders, putRender, deleteRender, MAX_RENDERS } from "../renderStore";
 
 // start and duration are stored in seconds; pixels = value * pxPerSec
 type TimelineClip = {
@@ -93,11 +94,11 @@ export default function WorkspaceView() {
   const [selectedClipId, setSelectedClipId] = useState<number | null>(null);
   const [resizing, setResizing] = useState<ResizeState | null>(null);
   const [selectedSound, setSelectedSound] = useState<SoundPoint | null>(null);
-  const [explorerSelected, setExplorerSelected] = useState<SoundPoint | null>(null);
+  const [selectedRenderId, setSelectedRenderId] = useState<number | null>(null);
+  const [poppedRenderId, setPoppedRenderId] = useState<number | null>(null);
   const [pathPreviewing, setPathPreviewing] = useState(false);
   const previewPlayer = useAudioPlayer();
   const interpPlayer = useAudioPlayer();
-  const explorerPlayer = useAudioPlayer();
   const dragSoundRef = useRef<SoundPoint | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -107,7 +108,6 @@ export default function WorkspaceView() {
   const clipsRef = useRef<TimelineClip[]>([]);
   const [quality, setQuality] = useState(8);
   const [libraryWidth, setLibraryWidth] = useState(42);
-const [timelineHeight, setTimelineHeight] = useState(180);
 
 const startHorizontalResize = (e: React.MouseEvent) => {
   e.preventDefault();
@@ -127,25 +127,6 @@ const startHorizontalResize = (e: React.MouseEvent) => {
   window.addEventListener("mouseup", onUp);
 };
 
-const startTimelineResize = (e: React.MouseEvent) => {
-  e.preventDefault();
-
-  const startY = e.clientY;
-  const startHeight = timelineHeight;
-
-  const onMove = (ev: MouseEvent) => {
-    const diff = startY - ev.clientY;
-    setTimelineHeight(Math.min(360, Math.max(120, startHeight + diff)));
-  };
-
-  const onUp = () => {
-    window.removeEventListener("mousemove", onMove);
-    window.removeEventListener("mouseup", onUp);
-  };
-
-  window.addEventListener("mousemove", onMove);
-  window.addEventListener("mouseup", onUp);
-};
   //const STORAGE_KEY = "gali-workspace";
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -324,7 +305,8 @@ const startTimelineResize = (e: React.MouseEvent) => {
     }
   };
 
-  const [libraryTab, setLibraryTab] = useState<Kind>("long");
+  const [libraryTab, setLibraryTab] = useState<Kind | "renders">("long");
+  const [lastSoundKind, setLastSoundKind] = useState<Kind>("long");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SoundHit[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -355,6 +337,7 @@ const startTimelineResize = (e: React.MouseEvent) => {
   const [renderProgress, setRenderProgress] = useState<{ done: number; total: number } | null>(null);
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
   const interpLoading = renderStatus !== null;
+  const [renderMs, setRenderMs] = useState<number | null>(null);
   const [interpError, setInterpError] = useState<string | null>(null);
   const [interpUrl, setInterpUrl] = useState<string | null>(null);
   const [renderLibrary, setRenderLibrary] = useState<
@@ -362,6 +345,9 @@ const startTimelineResize = (e: React.MouseEvent) => {
       id: number;
       name: string;
       url: string;
+      clips: TimelineClip[];
+      gaps: string[];
+      renderMs?: number;
     }[]
   >([]);
   const interpUrlRef = useRef<string | null>(null);
@@ -429,6 +415,28 @@ const startTimelineResize = (e: React.MouseEvent) => {
     getSounds()
       .then(setSounds)
       .catch((err) => console.error("Error loading sounds:", err));
+  }, []);
+
+  // Rehydrate the render library from IndexedDB, rebuilding fresh object URLs.
+  useEffect(() => {
+    let revoked = false;
+    const urls: string[] = [];
+    getAllRenders()
+      .then((records) => {
+        if (revoked) return;
+        setRenderLibrary(
+          records.map((r) => {
+            const url = URL.createObjectURL(r.blob);
+            urls.push(url);
+            return { id: r.id, name: r.name, url, clips: r.clips, gaps: r.gaps, renderMs: r.renderMs };
+          }),
+        );
+      })
+      .catch((err) => console.error("Failed to load saved renders:", err));
+    return () => {
+      revoked = true;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
   }, []);
 
 const getSoundColor = (name: string, filename = ""): { color: string; glow: string } => {
@@ -559,11 +567,12 @@ const moveClip = (id: number, newStartSec: number) => {
     setRenderProgress(null);
     setRenderJobId(null);
     setInterpError(null);
-    if (interpUrlRef.current) {
-      URL.revokeObjectURL(interpUrlRef.current);
-      interpUrlRef.current = null;
-    }
+    setRenderMs(null);
+    // Note: don't revoke the previous interpUrl here — it's kept alive in the
+    // render library so older renders stay playable. URLs are revoked on removal.
+    interpUrlRef.current = null;
     setInterpUrl(null);
+    const startedAt = performance.now();
     try {
       const url = await render(buildTimelineSegments(sorted), {
         onJobId: (id) => setRenderJobId(id),
@@ -577,18 +586,34 @@ const moveClip = (id: number, newStartSec: number) => {
 
       interpUrlRef.current = url;
       setInterpUrl(url);
+      const elapsedMs = performance.now() - startedAt;
+      setRenderMs(elapsedMs);
 
       const firstClip = sorted[0];
       const lastClip = sorted[sorted.length - 1];
+      const id = Date.now();
+      const name = `${firstClip.name} → ${lastClip.name}`;
+      const clips = sorted.map((c) => ({ ...c }));
+      const gaps = [...interpolatedGaps];
 
-      setRenderLibrary(prev => [
-        {
-          id: Date.now(),
-          name: `${firstClip.name} → ${lastClip.name}`,
-          url,
-        },
-        ...prev,
-      ]);
+      setRenderLibrary(prev => [{ id, name, url, clips, gaps, renderMs: elapsedMs }, ...prev].slice(0, MAX_RENDERS));
+
+      // Pop open the Renders tab with the fresh render's player ready (no autoplay).
+      // poppedRenderId drives the one-time entrance animation (only on completion).
+      interpPlayer.pause();
+      previewPlayer.pause();
+      setSelectedSound(null);
+      setLibraryTab("renders");
+      setSelectedRenderId(id);
+      setPoppedRenderId(id);
+
+      // Persist the WAV bytes + metadata so this render survives a refresh.
+      try {
+        const blob = await fetch(url).then((r) => r.blob());
+        await putRender({ id, name, clips, gaps, blob, renderMs: elapsedMs });
+      } catch (err) {
+        console.error("Failed to persist render:", err);
+      }
 
     } catch (err) {
       setInterpError(err instanceof Error ? err.message : "Render failed");
@@ -648,12 +673,20 @@ const moveClip = (id: number, newStartSec: number) => {
 
   const canInterpolate = timelineClips.length >= 1;
 
+  // The explorer always shows real sounds; when the "renders" tab is active it
+  // falls back to the last long/short selection so the latent space stays visible.
+  const explorerKind: Kind = libraryTab === "renders" ? lastSoundKind : libraryTab;
   const placedPoints = useMemo(
-    () => sounds.filter((p) => p.kind === libraryTab).map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })),
-    [sounds, libraryTab],
+    () => sounds.filter((p) => p.kind === explorerKind).map((p) => ({ ...p, px: p.x * 100, py: p.y * 100 })),
+    [sounds, explorerKind],
   );
 
-const selectedPathPoints = sortedClips
+// When a render is selected/playing, trace its clip path; otherwise the
+// current timeline's path.
+const playingRender = renderLibrary.find((r) => r.id === selectedRenderId);
+const pathClips = playingRender ? playingRender.clips : sortedClips;
+
+const selectedPathPoints = pathClips
   .map((clip) =>
     placedPoints.find((point) => point.filename === clip.filename)
   )
@@ -800,7 +833,14 @@ const selectedPath = selectedPathPoints
 
   const acceptPath = () => {
     if (drawnNodes.length < 2) return;
-    const startSec = timelineClips.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+
+    if (timelineClips.length > 0) {
+      const ok = window.confirm(
+        "Add this path to the timeline?\n\nThis will replace everything currently in your timeline.",
+      );
+      if (!ok) return;
+    }
+
     const dur = DEFAULT_CLIP_DURATION_SEC;
     const t = Date.now();
     const newClips: TimelineClip[] = drawnNodes.map((p, i) => ({
@@ -808,10 +848,10 @@ const selectedPath = selectedPathPoints
       name: p.name,
       filename: p.filename,
       kind: p.kind,
-      start: startSec + i * dur,
+      start: i * dur,
       duration: dur,
     }));
-    setTimelineClips((prev) => [...prev, ...newClips]);
+    setTimelineClips(newClips);
     setInterpUrl("");
     setPathMode(false);
     cancelPath();
@@ -819,6 +859,13 @@ const selectedPath = selectedPathPoints
 
   const loadExampleTimeline = () => {
     if (sounds.length < 2) return;
+
+    if (timelineClips.length > 0) {
+      const ok = window.confirm(
+        "Load the example timeline?\n\nThis will replace everything currently in your timeline.",
+      );
+      if (!ok) return;
+    }
 
     const pick = (keywords: string[]) =>
       sounds.find(s =>
@@ -833,6 +880,8 @@ const selectedPath = selectedPathPoints
       { id: t,     name: a.name, filename: a.filename, kind: a.kind, start: 0, duration: 5 },
       { id: t + 1, name: b.name, filename: b.filename, kind: b.kind, start: 9, duration: 5 },
     ]);
+    // Mark the gap between the two clips as an interpolation (not silence).
+    setInterpolatedGaps(new Set([`${t}-${t + 1}`]));
     setInterpUrl("");
     setShowHowToUse(false);
   };
@@ -841,6 +890,20 @@ const selectedPath = selectedPathPoints
     setTimelineClips((prev) => prev.filter((c) => c.id !== id));
     setInterpUrl("");
     if (selectedClipId === id) setSelectedClipId(null);
+  };
+
+  const loadRenderIntoTimeline = (item: (typeof renderLibrary)[number]) => {
+    if (timelineClips.length > 0) {
+      const ok = window.confirm(
+        "Load this render's timeline?\n\nThis will replace everything currently in your timeline.",
+      );
+      if (!ok) return;
+    }
+    // Keep the snapshot's clip ids so the saved gap keys still line up.
+    setTimelineClips(item.clips.map((c) => ({ ...c })));
+    setInterpolatedGaps(new Set(item.gaps));
+    setSelectedClipId(null);
+    setInterpUrl("");
   };
 
   return (
@@ -971,48 +1034,37 @@ const selectedPath = selectedPathPoints
                   <p>Hit <strong>Interpolate</strong> (bottom-right of the timeline) to render the full sequence. When it's ready, use the player in the timeline header to preview, and click <strong>Download WAV</strong> to save the file.</p>
                 </div>
               </div>
-              <div className="how-to-tip">
-                <strong>Tip:</strong> Use <kbd>Ctrl</kbd> + scroll on the timeline to zoom in or out. The zoom level shows as a percentage next to the −/+ buttons.
-              </div>
 
               <hr className="how-to-divider" />
 
               <div className="how-to-demo">
-                <p className="demo-audio-label">Try it — campfire · gap · keyboard</p>
+                <div className="demo-header-row">
+                  <p className="demo-audio-label">Try it — campfire · gap · keyboard</p>
+                  <button
+                    className="how-to-demo-cta"
+                    onClick={loadExampleTimeline}
+                    disabled={sounds.length < 2}
+                  >
+                    Load Example
+                  </button>
+                </div>
 
-                <img
-                  src="/example-timeline.png"
-                  alt="Example timeline: campfire, gap, keyboard"
-                  className="demo-timeline-img"
-                />
+                <p className="demo-audio-sub">
+                  Load a ready-made campfire → keyboard timeline, then hit Interpolate to hear the result.
+                </p>
 
                 <div className="how-to-demo-media">
                   <img
                     src="/demo-drag.gif"
                     alt="Drag a sound card onto the timeline"
                     className="demo-gif"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      target.style.display = "none";
-                      const placeholder = target.nextElementSibling as HTMLElement | null;
-                      if (placeholder) placeholder.style.display = "flex";
-                    }}
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
                   />
-                  <div className="demo-gif-placeholder" style={{ display: "none" }}>
-                    demo-drag.gif · drop into public/ to show here
-                  </div>
                 </div>
+              </div>
 
-                <div className="demo-audio-row">
-                  <audio controls src="/example-output.wav" className="demo-audio-player" />
-                  <button
-                    className="how-to-demo-cta"
-                    onClick={loadExampleTimeline}
-                    disabled={sounds.length < 2}
-                  >
-                    Load Example →
-                  </button>
-                </div>
+              <div className="how-to-tip">
+                <strong>Tip:</strong> Use <kbd>Ctrl</kbd> + scroll on the timeline to zoom in or out. The zoom level shows as a percentage next to the −/+ buttons.
               </div>
             </div>
           </div>
@@ -1141,34 +1193,132 @@ const selectedPath = selectedPathPoints
                 <button
                   key={k}
                   className={`library-tab${libraryTab === k ? " active" : ""}`}
-                  onClick={() => { setLibraryTab(k); setSelectedSound(null); previewPlayer.pause(); }}
+                  onClick={() => { setLibraryTab(k); setLastSoundKind(k); }}
                 >
                   {k === "long" ? "Long" : "Short"}
                 </button>
               ))}
+              <button
+                className={`library-tab${libraryTab === "renders" ? " active" : ""}`}
+                onClick={() => { setLibraryTab("renders"); }}
+              >
+                Renders{renderLibrary.length > 0 ? ` (${renderLibrary.length})` : ""}
+              </button>
             </div>
           </div>
 
-          <div className="library-search">
-            <input
-              className="library-search-input"
-              type="text"
-              placeholder="Search sounds…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button className="library-search-clear" onClick={() => setSearchQuery("")}>✕</button>
-            )}
-          </div>
+          {libraryTab !== "renders" && (
+            <div className="library-search">
+              <input
+                className="library-search-input"
+                type="text"
+                placeholder="Search sounds…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button className="library-search-clear" onClick={() => setSearchQuery("")}>✕</button>
+              )}
+            </div>
+          )}
 
-          {similarTo && (
+          {libraryTab !== "renders" && similarTo && (
             <div className="similar-banner">
               <span>Similar to: <strong>{similarTo.name}</strong></span>
               <button className="library-search-clear" onClick={() => { setSearchResults(null); setSimilarTo(null); }}>✕</button>
             </div>
           )}
 
+          {libraryTab === "renders" ? (
+            <div className="sound-grid-scroll">
+              <div className="render-library-list">
+                {renderLibrary.length === 0 && (
+                  <p className="library-hint">No renders yet. Build a timeline and hit Interpolate.</p>
+                )}
+                {renderLibrary.map((item) => (
+                  <div key={item.id} className="render-library-item">
+                    <div className="render-library-row">
+                      <div className="render-recipe">
+                        {item.clips.map((clip, i) => {
+                          const next = item.clips[i + 1];
+                          let connector: { symbol: string; label: string; cls: string } | null = null;
+                          if (next) {
+                            const gap = next.start - (clip.start + clip.duration);
+                            const inGaps = item.gaps.includes(`${clip.id}-${next.id}`);
+                            if (gap > 0.01) {
+                              connector = inGaps
+                                ? { symbol: "↝", label: "interp", cls: "interp" }
+                                : { symbol: "···", label: "silence", cls: "silence" };
+                            } else if (gap < -0.01) {
+                              connector = { symbol: "⤬", label: "overlap", cls: "overlap" };
+                            } else {
+                              connector = { symbol: "≈", label: "adjacent", cls: "adjacent" };
+                            }
+                          }
+                          return (
+                            <span key={clip.id} className="render-recipe-segment">
+                              <span className="render-recipe-chip">
+                                {getEmoji(clip.name, clip.filename)}
+                              </span>
+                              {connector && (
+                                <span className={`render-recipe-link ${connector.cls}`}>
+                                  <span className="render-recipe-link-symbol">{connector.symbol}</span>
+                                  <span className="render-recipe-link-label">{connector.label}</span>
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <div className="render-library-actions">
+                        <button
+                          className="preview-play-btn"
+                          onClick={() => {
+                            if (selectedRenderId === item.id && interpPlayer.isPlaying) {
+                              interpPlayer.pause();
+                            } else {
+                              previewPlayer.pause();
+                              setSelectedSound(null);
+                              setSelectedRenderId(item.id);
+                              interpPlayer.seek(0);
+                              interpPlayer.play(item.url);
+                            }
+                          }}
+                          title="Play render"
+                        >{selectedRenderId === item.id && interpPlayer.isPlaying ? "⏸" : "▶"}</button>
+                        <button
+                          className="download-btn"
+                          onClick={() => loadRenderIntoTimeline(item)}
+                          title="Load this render's clips into the timeline"
+                        >Load</button>
+                        <a
+                          href={item.url}
+                          download={`${item.name}.wav`}
+                          className="download-btn"
+                        >Download</a>
+                        <button
+                          className="delete-clip-btn"
+                          onClick={() => {
+                            if (interpUrlRef.current === item.url) { setInterpUrl(""); interpUrlRef.current = null; }
+                            if (selectedRenderId === item.id) { interpPlayer.pause(); setSelectedRenderId(null); }
+                            URL.revokeObjectURL(item.url);
+                            setRenderLibrary((prev) => prev.filter((r) => r.id !== item.id));
+                            deleteRender(item.id).catch((err) => console.error("Failed to delete render:", err));
+                          }}
+                          title="Remove render"
+                        >✕</button>
+                      </div>
+                    </div>
+                    {item.renderMs != null && (
+                      <span className="render-library-time">
+                        Rendered in {(item.renderMs / 1000).toFixed(1)}s
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
           <div className="sound-grid-scroll">
             <div className="sound-grid">
               {searchLoading && <p className="library-hint">Searching…</p>}
@@ -1188,6 +1338,7 @@ const selectedPath = selectedPathPoints
                         setSelectedSound(null);
                       } else {
                         interpPlayer.pause();
+                        setSelectedRenderId(null);
                         setSelectedSound(sound);
                         previewPlayer.play(getSoundUrl(sound.filename, sound.kind));
                       }
@@ -1217,12 +1368,34 @@ const selectedPath = selectedPathPoints
               })()}
             </div>
           </div>
+          )}
 
           {selectedSound && (
             <div className="sound-preview-panel">
               <div className="sound-preview-header">
                 <span className="preview-name">{getEmoji(selectedSound.name, selectedSound.filename)} {selectedSound.name}</span>
-                <button className="close-preview-btn" onClick={() => { previewPlayer.pause(); setSelectedSound(null); }}>✕</button>
+                <div className="preview-header-actions">
+                  <button
+                    className="find-similar-btn"
+                    onClick={() => {
+                      if (similarTo?.id === selectedSound.id) {
+                        setSearchResults(null);
+                        setSimilarTo(null);
+                        return;
+                      }
+                      setSearchQuery("");
+                      setSimilarTo(selectedSound);
+                      setSearchLoading(true);
+                      findSimilarSounds(selectedSound.filename, selectedSound.kind)
+                        .then(setSearchResults)
+                        .catch(() => setSearchResults([]))
+                        .finally(() => setSearchLoading(false));
+                    }}
+                  >
+                    {similarTo?.id === selectedSound.id ? "Clear similar" : "Find similar"}
+                  </button>
+                  <button className="close-preview-btn" onClick={() => { previewPlayer.pause(); setSelectedSound(null); setSearchResults(null); setSimilarTo(null); }}>✕</button>
+                </div>
               </div>
               <div className="preview-controls">
                 <button
@@ -1247,27 +1420,78 @@ const selectedPath = selectedPathPoints
                 />
                 <span className="audio-time">{fmt(previewPlayer.currentTime)} / {fmt(previewPlayer.duration)}</span>
               </div>
-              <button
-                className="find-similar-btn"
-                onClick={() => {
-                  if (similarTo?.id === selectedSound.id) {
-                    setSearchResults(null);
-                    setSimilarTo(null);
-                    return;
-                  }
-                  setSearchQuery("");
-                  setSimilarTo(selectedSound);
-                  setSearchLoading(true);
-                  findSimilarSounds(selectedSound.filename, selectedSound.kind)
-                    .then(setSearchResults)
-                    .catch(() => setSearchResults([]))
-                    .finally(() => setSearchLoading(false));
-                }}
-              >
-                {similarTo?.id === selectedSound.id ? "Clear similar" : "Find similar"}
-              </button>
             </div>
           )}
+
+          {(() => {
+            const selectedRender = renderLibrary.find((r) => r.id === selectedRenderId);
+            if (!selectedRender) return null;
+            const popping = selectedRender.id === poppedRenderId;
+            return (
+              <div
+                className={`sound-preview-panel${popping ? " render-preview-pop" : ""}`}
+                key={selectedRender.id}
+                onAnimationEnd={() => { if (popping) setPoppedRenderId(null); }}
+              >
+                <div className="sound-preview-header">
+                  <div className="render-recipe">
+                    {selectedRender.clips.map((clip, i) => {
+                      const next = selectedRender.clips[i + 1];
+                      let connector: { symbol: string; label: string; cls: string } | null = null;
+                      if (next) {
+                        const gap = next.start - (clip.start + clip.duration);
+                        const inGaps = selectedRender.gaps.includes(`${clip.id}-${next.id}`);
+                        if (gap > 0.01) {
+                          connector = inGaps
+                            ? { symbol: "↝", label: "interp", cls: "interp" }
+                            : { symbol: "···", label: "silence", cls: "silence" };
+                        } else if (gap < -0.01) {
+                          connector = { symbol: "⤬", label: "overlap", cls: "overlap" };
+                        } else {
+                          connector = { symbol: "≈", label: "adjacent", cls: "adjacent" };
+                        }
+                      }
+                      return (
+                        <span key={clip.id} className="render-recipe-segment">
+                          <span className="render-recipe-chip">{getEmoji(clip.name, clip.filename)}</span>
+                          {connector && (
+                            <span className={`render-recipe-link ${connector.cls}`}>
+                              <span className="render-recipe-link-symbol">{connector.symbol}</span>
+                              <span className="render-recipe-link-label">{connector.label}</span>
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <button className="close-preview-btn" onClick={() => { interpPlayer.pause(); setSelectedRenderId(null); }}>✕</button>
+                </div>
+                <div className="preview-controls">
+                  <button
+                    className="preview-play-btn"
+                    onClick={() => { previewPlayer.pause(); interpPlayer.seek(0); interpPlayer.play(selectedRender.url); }}
+                    title="Restart"
+                  >↺</button>
+                  <button
+                    className="preview-play-btn"
+                    onClick={() => interpPlayer.isPlaying ? interpPlayer.pause() : (previewPlayer.pause(), interpPlayer.play(selectedRender.url))}
+                  >
+                    {interpPlayer.isPlaying ? "⏸" : "▶"}
+                  </button>
+                  <input
+                    className="audio-scrubber"
+                    type="range"
+                    min={0}
+                    max={interpPlayer.duration || 1}
+                    step={0.01}
+                    value={interpPlayer.currentTime}
+                    onChange={(e) => interpPlayer.seek(Number(e.target.value))}
+                  />
+                  <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 <div
   className="vertical-resize-handle"
@@ -1317,17 +1541,42 @@ const selectedPath = selectedPathPoints
                 {/* Drawn path (live or pending review) */}
                 {(isDrawingPath || drawnPath.length > 0) && (
                   <svg className="drawn-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <defs>
+                      <marker
+                        id="drawn-path-arrow"
+                        markerWidth="6"
+                        markerHeight="6"
+                        refX="5"
+                        refY="3"
+                        orient="auto"
+                      >
+                        <path d="M0,0 L6,3 L0,6 Z" className="drawn-path-arrow-head" />
+                      </marker>
+                    </defs>
                     <g transform={transformAttr}>
                       <polyline
                         className="drawn-path-line"
                         points={drawnPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                        markerEnd="url(#drawn-path-arrow)"
                       />
-                      {drawnNodes.map((n) => (
-                        <circle key={n.id} className="drawn-path-node" cx={n.x * 100} cy={n.y * 100} r="2.4" />
-                      ))}
                     </g>
                   </svg>
                 )}
+
+                {/* Numbered markers on each path node (HTML overlay so they stay crisp) */}
+                {drawnNodes.map((n, i) => {
+                  const dx = n.x * 100 * zoom + panX;
+                  const dy = n.y * 100 * zoom + panY;
+                  return (
+                    <div
+                      key={n.id}
+                      className="drawn-path-node-marker"
+                      style={{ left: `${dx}%`, top: `${dy}%` }}
+                    >
+                      {i + 1}
+                    </div>
+                  );
+                })}
 
                 {selectedPathPoints.length >= 2 && (
                   <svg
@@ -1354,9 +1603,8 @@ const selectedPath = selectedPathPoints
                         markerEnd="url(#arrow-head)"
                         onClick={() => {
                           if (!interpUrl) return;
-                          explorerPlayer.pause();
                           previewPlayer.pause();
-                          setExplorerSelected(null);
+                          setSelectedSound(null);
                           setPathPreviewing(true);
                           interpPlayer.seek(0);
                           interpPlayer.play(interpUrl);
@@ -1374,7 +1622,7 @@ const selectedPath = selectedPathPoints
                   return (
                     <div
                       key={point.id}
-                      className={`dot${explorerSelected?.id === point.id ? " selected" : ""}${explorerSelected?.id === point.id && explorerPlayer.isPlaying ? " playing" : ""}`}
+                      className={`dot${selectedSound?.id === point.id ? " selected" : ""}${selectedSound?.id === point.id && previewPlayer.isPlaying ? " playing" : ""}`}
                       style={{ left: `${dx}%`, top: `${dy}%`, "--dot-color": color, "--dot-glow": glow } as React.CSSProperties}
                       draggable={!pathMode}
                       onMouseDown={(e) => { e.stopPropagation(); }}
@@ -1383,14 +1631,14 @@ const selectedPath = selectedPathPoints
                       onClick={(e) => {
                         e.stopPropagation();
                         if (pathMode) return;
-                        if (explorerSelected?.id === point.id) {
-                          if (explorerPlayer.isPlaying) { explorerPlayer.pause(); } else { explorerPlayer.play(getSoundUrl(point.filename, point.kind)); }
+                        if (selectedSound?.id === point.id) {
+                          if (previewPlayer.isPlaying) { previewPlayer.pause(); } else { previewPlayer.play(getSoundUrl(point.filename, point.kind)); }
                         } else {
-                          explorerPlayer.pause();
                           interpPlayer.pause();
+                          setSelectedRenderId(null);
                           setPathPreviewing(false);
-                          setExplorerSelected(point);
-                          explorerPlayer.play(getSoundUrl(point.filename, point.kind));
+                          setSelectedSound(point);
+                          previewPlayer.play(getSoundUrl(point.filename, point.kind));
                         }
                       }}
                       title={point.name}
@@ -1402,24 +1650,7 @@ const selectedPath = selectedPathPoints
                 })}
               </div>
 
-              {explorerSelected && (
-                <div className="sound-preview-panel explorer-floating-preview">
-                  <div className="sound-preview-header">
-                    <span className="preview-name">{getEmoji(explorerSelected.name, explorerSelected.filename)} {explorerSelected.name}</span>
-                    <button className="close-preview-btn" onClick={() => { explorerPlayer.pause(); setExplorerSelected(null); }}>✕</button>
-                  </div>
-                  <div className="preview-controls">
-                    <button className="preview-play-btn" onClick={() => { explorerPlayer.seek(0); explorerPlayer.play(getSoundUrl(explorerSelected.filename, explorerSelected.kind)); }} title="Restart">↺</button>
-                    <button className="preview-play-btn" onClick={() => explorerPlayer.isPlaying ? explorerPlayer.pause() : explorerPlayer.play(getSoundUrl(explorerSelected.filename, explorerSelected.kind))}>
-                      {explorerPlayer.isPlaying ? "⏸" : "▶"}
-                    </button>
-                    <input className="audio-scrubber" type="range" min={0} max={explorerPlayer.duration || 1} step={0.01} value={explorerPlayer.currentTime} onChange={(e) => explorerPlayer.seek(Number(e.target.value))} />
-                    <span className="audio-time">{fmt(explorerPlayer.currentTime)} / {fmt(explorerPlayer.duration)}</span>
-                  </div>
-                </div>
-              )}
-
-              {pathPreviewing && interpUrl && !explorerSelected && (
+              {pathPreviewing && interpUrl && (
                 <div className="sound-preview-panel explorer-floating-preview">
                   <div className="sound-preview-header">
                     <span className="preview-name">↝ Interpolated path</span>
@@ -1526,11 +1757,7 @@ const selectedPath = selectedPathPoints
 
         </div>
       </div>
-      <div
-        className="horizontal-resize-handle"
-        onMouseDown={startTimelineResize}
-      />
-      <div className="timeline-panel"  style={{ height: `${timelineHeight}px` }}>
+      <div className="timeline-panel">
         <div className="timeline-header">
           <div className="timeline-header-left">
             <h2>Timeline</h2>
@@ -1564,58 +1791,8 @@ const selectedPath = selectedPathPoints
               title="Clear timeline"
             >Clear</button>
             {interpError && <p className="interp-error">{interpError}</p>}
-            {interpUrl && !interpLoading && (
-              <div className="interp-result">
-                <span>Result ready</span>
-                <button className="preview-play-btn" onClick={() => { interpPlayer.seek(0); previewPlayer.pause(); interpPlayer.play(interpUrl); }} title="Replay">↺</button>
-                <button className="preview-play-btn" onClick={() => { if (interpPlayer.isPlaying) { interpPlayer.pause(); } else { previewPlayer.pause(); interpPlayer.play(interpUrl); } }}>
-                  {interpPlayer.isPlaying ? "⏸" : "▶"}
-                </button>
-                <input
-                  className="audio-scrubber"
-                  type="range"
-                  min={0}
-                  max={interpPlayer.duration || 1}
-                  step={0.01}
-                  value={interpPlayer.currentTime}
-                  onChange={(e) => interpPlayer.seek(Number(e.target.value))}
-                />
-                <span className="audio-time">{fmt(interpPlayer.currentTime)} / {fmt(interpPlayer.duration)}</span>
-              </div>
-            )}
-            {renderLibrary.length > 0 && (
-              <div className="render-library">
-                <h3>🎵 Render Library</h3>
-
-                {renderLibrary.map((render) => (
-                  <div key={render.id} className="render-library-item">
-
-                    <span>{render.name}</span>
-
-                    <div className="render-library-actions">
-
-                      <button
-                        className="preview-play-btn"
-                        onClick={() => {
-                          previewPlayer.pause();
-                          interpPlayer.play(render.url);
-                        }}
-                      >
-                        ▶
-                      </button>
-
-                      <a
-                        href={render.url}
-                        download={`${render.name}.wav`}
-                        className="download-btn"
-                      >
-                        Download
-                      </a>
-
-                    </div>
-                  </div>
-                ))}
-              </div>
+            {!interpLoading && !interpError && renderMs != null && (
+              <span className="render-time">Rendered in {(renderMs / 1000).toFixed(1)}s</span>
             )}
           </div>
           <div className="timeline-header-right">

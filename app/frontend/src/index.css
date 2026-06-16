@@ -48,27 +48,29 @@
 }
 
 .light-theme {
-  --bg:        #f5f7fb;
-  --surface-0: #ffffff;
-  --surface-1: #ffffff;
-  --surface-2: #e7edf4;
-  --surface-3: #dfe7f0;
+  /* Soft cool-gray page with muted off-white surfaces — like the dark theme
+     is slate rather than black, this is a gentle white, never pure #fff. */
+  --bg:        #d3dbe6;
+  --surface-0: #edf1f7;
+  --surface-1: #e6ecf4;
+  --surface-2: #dce4ef;
+  --surface-3: #d0dae7;
 
-  --border-0:  #cfd8e3;
-  --border-1:  #b8c4d1;
-  --border-2:  #94a3b8;
+  --border-0:  #c5d0dd;
+  --border-1:  #b4c1d1;
+  --border-2:  #93a3b7;
 
-  --accent:       #1E90FF;
-  --accent-hover: #4aa3ff;
-  --accent-dim:   rgba(30, 144, 255, 0.12);
-  --accent-glow:  rgba(30, 144, 255, 0.25);
+  --accent:       #2477e6;
+  --accent-hover: #1e90ff;
+  --accent-dim:   rgba(36, 119, 230, 0.10);
+  --accent-glow:  rgba(36, 119, 230, 0.22);
 
-  --amber:     #d4a017;
-  --amber-dim: rgba(212, 160, 23, 0.12);
+  --amber:     #c08a12;
+  --amber-dim: rgba(192, 138, 18, 0.12);
 
-  --text-1: #1b2430;
-  --text-2: #334155;
-  --text-3: #718096;
+  --text-1: #20293a;
+  --text-2: #475569;
+  --text-3: #8090a3;
 
   --error:   #dc2626;
   --success: #16a34a;
