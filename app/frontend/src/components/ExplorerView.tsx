@@ -80,10 +80,10 @@ export default function ExplorerView() {
                   style={{ left: point.px, top: point.py }}
                   onClick={() => {
                     if (selected?.id === point.id) {
-                      player.isPlaying ? player.pause() : player.play(getSoundUrl(point.filename));
+                      player.isPlaying ? player.pause() : player.play(getSoundUrl(point.filename, point.kind));
                     } else {
                       setSelected(point);
-                      player.play(getSoundUrl(point.filename));
+                      player.play(getSoundUrl(point.filename, point.kind));
                     }
                   }}
                   title={point.name}
@@ -113,7 +113,7 @@ export default function ExplorerView() {
                 {selected.y.toFixed(3)})
               </p>
 
-              <AudioPlayer player={player} url={getSoundUrl(selected.filename)} />
+              <AudioPlayer player={player} url={getSoundUrl(selected.filename, selected.kind)} />
               <button>Use for Interpolation</button>
             </>
           ) : (
